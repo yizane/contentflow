@@ -248,6 +248,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/articles') return json(res, 200, { ok: true, articles: await listArticles(q) });
     if ((m = p.match(/^\/api\/articles\/([\w-]+)\/trace$/))) return json(res, 200, { ok: true, ...(await articleTrace(m[1])) });
+    if ((m = p.match(/^\/api\/articles\/([\w-]+)\/channels$/))) {
+      const rows = await my.query('SELECT channel, title, content_markdown, status FROM channel_outputs WHERE article_id = ? ORDER BY channel', [m[1]]);
+      return json(res, 200, { ok: true, channels: rows });
+    }
     if ((m = p.match(/^\/api\/articles\/([\w-]+)$/))) {
       const d = await articleDetail(m[1]);
       return d ? json(res, 200, { ok: true, ...d }) : json(res, 404, { ok: false, error: 'article not found' });

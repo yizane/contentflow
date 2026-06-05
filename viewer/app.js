@@ -49,6 +49,62 @@ function fmt(t, withYear = false) {
 
 let latestRunId = null;
 
+// ===== 轻量 Markdown → HTML 渲染（零依赖；先转义再转换，防注入）=====
+function mdToHtml(md) {
+  if (!md) return '';
+  const lines = esc(md).split('\n');
+  const out = [];
+  let inCode = false, inList = null, inQuote = false, tableBuf = [];
+
+  const closeList = () => { if (inList) { out.push(`</${inList}>`); inList = null; } };
+  const closeQuote = () => { if (inQuote) { out.push('</blockquote>'); inQuote = false; } };
+  const flushTable = () => {
+    if (!tableBuf.length) return;
+    const rows = tableBuf.filter((r) => !/^\|?[\s:|-]+\|?$/.test(r)); // 去分隔行
+    const html = rows.map((r, i) => {
+      const cells = r.replace(/^\||\|$/g, '').split('|').map((c) => inline(c.trim()));
+      const tag = i === 0 ? 'th' : 'td';
+      return `<tr>${cells.map((c) => `<${tag}>${c}</${tag}>`).join('')}</tr>`;
+    }).join('');
+    out.push(`<table class="md-table">${html}</table>`);
+    tableBuf = [];
+  };
+  const inline = (s) => s
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+  for (const raw of lines) {
+    const line = raw;
+    if (/^```/.test(line.trim())) {
+      flushTable(); closeList(); closeQuote();
+      out.push(inCode ? '</code></pre>' : '<pre class="md-code"><code>');
+      inCode = !inCode;
+      continue;
+    }
+    if (inCode) { out.push(line); continue; }
+    if (/^\|.*\|/.test(line.trim())) { closeList(); closeQuote(); tableBuf.push(line.trim()); continue; }
+    flushTable();
+    const h = line.match(/^(#{1,4})\s+(.*)$/);
+    if (h) { closeList(); closeQuote(); out.push(`<h${h[1].length + 1}>${inline(h[2])}</h${h[1].length + 1}>`); continue; }
+    if (/^(\*{3,}|-{3,})\s*$/.test(line.trim())) { closeList(); closeQuote(); out.push('<hr>'); continue; }
+    const q = line.match(/^&gt;\s?(.*)$/);
+    if (q) { closeList(); if (!inQuote) { out.push('<blockquote>'); inQuote = true; } out.push(inline(q[1]) + '<br>'); continue; }
+    closeQuote();
+    const ul = line.match(/^\s*[-*]\s+(.*)$/);
+    if (ul) { if (inList !== 'ul') { closeList(); out.push('<ul>'); inList = 'ul'; } out.push(`<li>${inline(ul[1])}</li>`); continue; }
+    const ol = line.match(/^\s*\d+[.、]\s+(.*)$/);
+    if (ol) { if (inList !== 'ol') { closeList(); out.push('<ol>'); inList = 'ol'; } out.push(`<li>${inline(ol[1])}</li>`); continue; }
+    closeList();
+    if (line.trim() === '') { out.push(''); continue; }
+    out.push(`<p>${inline(line)}</p>`);
+  }
+  closeList(); closeQuote(); flushTable();
+  if (inCode) out.push('</code></pre>');
+  return out.join('\n');
+}
+
 // ===== tab 切换 =====
 document.querySelectorAll('nav button').forEach((b) => {
   b.onclick = () => {
@@ -157,8 +213,21 @@ window.showArticle = async (id, el) => {
     ${t.source_resolutions_summary.map((r) => `${st(r.resolved_status)} ×${r.c}`).join('　') || '<span class="hint">无</span>'}
     <h3>版本历史</h3>
     ${(t.versions || []).map((x) => `<div class="evt">${esc(x.version_label)}（${x.generation_mode === 'fact_checked_revision' ? '修订版' : '初稿'}）${st(x.status)} ${fmt(x.created_at)}</div>`).join('')}
-    <details><summary>📄 查看文章正文（点击展开）</summary><pre class="markdown-body">${esc(v ? v.markdown : '')}</pre></details>
+    <h3>文章正文</h3>
+    <div class="md-render">${mdToHtml(v ? v.markdown : '')}</div>
+    ${d.channels.length ? `<h3>渠道稿正文</h3>${d.channels.map((c) => `<details><summary>${esc(zh(ZH_CHANNEL, c.channel))}（${c.len} 字，点击展开）</summary><div class="md-render" data-ch="${esc(c.channel)}">加载中…</div></details>`).join('')}` : ''}
   `;
+  // 渠道稿懒加载
+  document.querySelectorAll('#article-detail details').forEach((det) => {
+    det.addEventListener('toggle', async () => {
+      const box = det.querySelector('.md-render');
+      if (det.open && box && box.textContent === '加载中…') {
+        const full = await api('/api/articles/' + id + '/channels');
+        const ch = (full.channels || []).find((x) => x.channel === box.dataset.ch);
+        box.innerHTML = mdToHtml(ch ? ch.content_markdown : '（无内容）');
+      }
+    }, { once: false });
+  });
 };
 
 // ===== 引擎运行 =====
