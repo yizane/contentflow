@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyfus-content-agent/seo_score.schema.json",
+  "title": "Flyfus SEO Score Output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["seoScore", "breakdown", "strengths", "issues", "recommendedFixes", "seoRecommendation"],
+  "properties": {
+    "seoScore": { "type": "number", "minimum": 0, "maximum": 100 },
+    "breakdown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["searchIntentMatch", "keywordTargeting", "serpDifferentiation", "titleMetaOptimization", "headingStructure", "internalLinkOpportunity", "schemaReadiness", "freshnessAndSource", "readability"],
+      "properties": {
+        "searchIntentMatch": { "type": "number", "minimum": 0, "maximum": 15 },
+        "keywordTargeting": { "type": "number", "minimum": 0, "maximum": 15 },
+        "serpDifferentiation": { "type": "number", "minimum": 0, "maximum": 15 },
+        "titleMetaOptimization": { "type": "number", "minimum": 0, "maximum": 10 },
+        "headingStructure": { "type": "number", "minimum": 0, "maximum": 10 },
+        "internalLinkOpportunity": { "type": "number", "minimum": 0, "maximum": 10 },
+        "schemaReadiness": { "type": "number", "minimum": 0, "maximum": 10 },
+        "freshnessAndSource": { "type": "number", "minimum": 0, "maximum": 10 },
+        "readability": { "type": "number", "minimum": 0, "maximum": 5 }
+      }
+    },
+    "strengths": { "type": "array", "items": { "type": "string" } },
+    "issues": { "type": "array", "items": { "type": "string" } },
+    "recommendedFixes": { "type": "array", "items": { "type": "string" } },
+    "seoRecommendation": { "type": "string", "enum": ["excellent", "good", "revise", "poor"] }
+  }
+}

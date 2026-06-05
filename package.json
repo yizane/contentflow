@@ -1,0 +1,38 @@
+{
+  "name": "flyfus-content-agent",
+  "version": "1.0.0-rc.1",
+  "private": true,
+  "description": "Flyfus SEO/GEO content generation engine — MySQL-only runtime, OpenClaw execution layer, local read-only Viewer. Web project integrates via MySQL only.",
+  "scripts": {
+    "db:ping": "node scripts/db_ping.js",
+    "db:init": "node scripts/db_init.js",
+    "db:migrate": "node scripts/db_migrate.js",
+    "viewer": "node scripts/view_server.js",
+    "engine:daily": "node scripts/engine_daily.js",
+    "engine:batch": "node scripts/engine_batch.js",
+    "engine:report": "node scripts/engine_report.js",
+    "collect:sources": "node scripts/collect_sources.js",
+    "run:topic-generation": "node scripts/run_topic_generation.js",
+    "jobs:create-articles": "node scripts/create_article_jobs.js",
+    "jobs:run-articles": "node scripts/run_article_jobs.js",
+    "jobs:run-fact-check": "node scripts/run_fact_check_jobs.js",
+    "channels:generate": "node scripts/run_channel_repurpose.js",
+    "fix:sources": "node scripts/fix_sources.js",
+    "run:source-resolution": "node scripts/run_source_resolution.js",
+    "run:article-revision": "node scripts/run_article_revision.js",
+    "run:seo-geo-score": "node scripts/run_seo_geo_score.js",
+    "export:package": "node scripts/export_publish_package.js",
+    "review:mark": "node scripts/review_mark.js",
+    "db:list": "node scripts/db_list_articles.js",
+    "db:show": "node scripts/db_show_article.js",
+    "check:sources": "node scripts/check_sources.js",
+    "config:sync": "node scripts/config_sync.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "mysql2": "^3.22.4"
+  }
+}

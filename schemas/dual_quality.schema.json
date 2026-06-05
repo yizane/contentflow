@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyfus-content-agent/dual_quality.schema.json",
+  "title": "Flyfus Dual Quality (SEO/GEO) Output",
+  "description": "SEO/GEO 双评分汇总。overallScore 按 strategy 加权：balanced=0.3*seo+0.3*geo+0.2*fact+0.1*businessFit+0.1*readability；seo_first=0.45*seo+0.15*geo+...；geo_first=0.15*seo+0.45*geo+...（fact/businessFit/readability 权重不变）",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["overallScore", "seoScore", "geoScore", "factScore", "businessFitScore", "readabilityScore", "strategy", "recommendation", "seo", "geo", "summary", "mustFix", "niceToHave"],
+  "properties": {
+    "overallScore": { "type": "number", "minimum": 0, "maximum": 100 },
+    "seoScore": { "type": "number", "minimum": 0, "maximum": 100 },
+    "geoScore": { "type": "number", "minimum": 0, "maximum": 100 },
+    "factScore": { "type": "number", "minimum": 0, "maximum": 100 },
+    "businessFitScore": { "type": "number", "minimum": 0, "maximum": 100 },
+    "readabilityScore": { "type": "number", "minimum": 0, "maximum": 100 },
+    "strategy": { "type": "string", "enum": ["balanced", "seo_first", "geo_first"] },
+    "recommendation": { "type": "string", "enum": ["publish", "revise", "reject", "ready_for_review"] },
+    "seo": { "type": "object", "description": "嵌套 seo_score.schema.json 的完整输出" },
+    "geo": { "type": "object", "description": "嵌套 geo_score.schema.json 的完整输出" },
+    "summary": { "type": "string", "minLength": 10 },
+    "mustFix": { "type": "array", "items": { "type": "string" } },
+    "niceToHave": { "type": "array", "items": { "type": "string" } }
+  }
+}

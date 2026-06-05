@@ -1,0 +1,51 @@
+keyword,cluster,intent,priority,stage,business_angle
+Amazon Rufus 是什么,amazon-rufus,informational,P0,awareness,Rufus 问答数据
+Amazon Rufus 怎么影响 Listing 排名,amazon-rufus,informational,P0,consideration,Rufus 问答数据
+Amazon Rufus 优化技巧,amazon-rufus,transactional,P0,decision,Rufus 问答数据
+Rufus 推荐逻辑,amazon-rufus,informational,P0,consideration,Rufus 问答数据
+亚马逊 AI 导购助手,amazon-rufus,informational,P1,awareness,Rufus 问答数据
+亚马逊 Listing 优化,listing-optimization,transactional,P0,decision,Listing 语义架构
+亚马逊 Listing 埋词技巧,listing-optimization,transactional,P0,decision,Listing 语义架构
+亚马逊五点描述写法,listing-optimization,transactional,P0,decision,Listing 语义架构
+亚马逊 A+ 页面优化,listing-optimization,transactional,P1,decision,Listing 语义架构
+亚马逊标题关键词布局,listing-optimization,transactional,P0,decision,Listing 语义架构
+Listing 语义优化,listing-optimization,informational,P0,consideration,Listing 语义架构
+Amazon GEO 优化,amazon-geo,informational,P0,awareness,Listing 语义架构
+GEO 生成式引擎优化 亚马逊,amazon-geo,informational,P0,awareness,Listing 语义架构
+AI 搜索如何推荐亚马逊商品,amazon-geo,informational,P0,consideration,场景标签
+ChatGPT 推荐商品 怎么被收录,amazon-geo,informational,P0,consideration,场景标签
+让 AI 引用我的产品页面,amazon-geo,transactional,P0,decision,Listing 语义架构
+亚马逊 ACoS 优化,ppc-acos,transactional,P0,decision,高转化意图词
+ACoS 多少算正常,ppc-acos,informational,P0,awareness,高转化意图词
+ACoS 太高怎么降,ppc-acos,transactional,P0,decision,高转化意图词
+亚马逊广告 ROAS 提升,ppc-acos,transactional,P1,decision,高转化意图词
+亚马逊 PPC 关键词,amazon-ppc,transactional,P0,decision,高转化意图词
+亚马逊广告否定关键词,amazon-ppc,transactional,P0,decision,高转化意图词
+亚马逊自动广告跑词,amazon-ppc,transactional,P1,decision,高转化意图词
+亚马逊广告竞价策略,amazon-ppc,transactional,P1,decision,高转化意图词
+PPC 长尾词投放,amazon-ppc,transactional,P1,decision,高转化意图词
+亚马逊选品方法,product-research,informational,P0,awareness,未满足需求
+亚马逊选品工具,product-research,commercial,P0,consideration,未满足需求
+亚马逊蓝海类目,product-research,informational,P0,consideration,未满足需求
+亚马逊细分市场分析,product-research,informational,P1,consideration,未满足需求
+差评分析 选品机会,product-research,informational,P1,consideration,未满足需求
+亚马逊关键词调研,keyword-research,transactional,P0,decision,高转化意图词
+亚马逊意图词 是什么,keyword-research,informational,P0,awareness,高转化意图词
+ABA 搜索词报告怎么用,keyword-research,transactional,P0,decision,高转化意图词
+亚马逊场景词布局,keyword-research,transactional,P0,decision,场景标签
+关键词搜索量下降 原因,keyword-research,informational,P1,consideration,高转化意图词
+亚马逊自然流量下滑,traffic-decline,informational,P0,consideration,Listing 语义架构
+亚马逊流量突然变少 怎么排查,traffic-decline,informational,P0,decision,Listing 语义架构
+亚马逊 AI 搜索时代运营,ai-search-era,informational,P0,awareness,场景标签
+COSMO 算法 是什么,cosmo-algorithm,informational,P0,awareness,场景标签
+COSMO 算法 Listing 优化,cosmo-algorithm,transactional,P0,decision,Listing 语义架构
+Alexa for Shopping,alexa-shopping,informational,P0,awareness,Amazon AI shopping 入口变化
+Amazon AI Shopping,alexa-shopping,informational,P0,awareness,Amazon AI shopping 入口变化
+亚马逊 AI 购物助手,alexa-shopping,informational,P0,awareness,Alexa for Shopping 搜索框问答场景
+亚马逊 Alexa for Shopping,alexa-shopping,informational,P0,consideration,Amazon AI shopping 入口变化
+Rufus 改名 Alexa for Shopping,alexa-shopping,informational,P1,awareness,Amazon AI shopping 入口变化
+Amazon Rufus renamed Alexa for Shopping,alexa-shopping,informational,P1,awareness,Amazon AI shopping 入口变化
+亚马逊 AI 搜索优化,ai-search-era,transactional,P0,decision,Listing 语义架构
+亚马逊商品页 AI Overviews,ai-search-era,informational,P0,consideration,商品页 AI Overviews
+Amazon AI shopping assistant,alexa-shopping,informational,P0,awareness,Rufus 数据仍可用于买家意图分析
+Amazon Shopping AI Overviews,ai-search-era,informational,P1,consideration,商品页 AI Overviews

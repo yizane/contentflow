@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Flyfus Content Agent — Trace Console (local read-only)</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Flyfus Trace Console <span class="badge">local · read-only</span></h1>
+  <nav>
+    <button data-tab="articles" class="active">Articles</button>
+    <button data-tab="runs">Engine Runs</button>
+    <button data-tab="sources">Sources</button>
+    <button data-tab="reports">Reports</button>
+  </nav>
+</header>
+
+<div id="run-control" class="run-control">
+  <div class="rc-status" id="rc-status">加载中…</div>
+  <div class="rc-buttons">
+    <button id="rc-run" disabled>Run Today</button>
+    <button id="rc-retry" disabled>Retry Failed</button>
+    <button id="rc-rebuild" disabled>Rebuild Today</button>
+    <button id="rc-report">Generate Report</button>
+  </div>
+  <div class="rc-actions" id="rc-actions"></div>
+</div>
+
+<main>
+  <section id="tab-articles" class="tab active">
+    <div class="split">
+      <div id="article-list" class="list"></div>
+      <div id="article-detail" class="detail"><p class="hint">点击左侧文章查看详情与 Trace</p></div>
+    </div>
+  </section>
+
+  <section id="tab-runs" class="tab">
+    <div class="split">
+      <div id="run-list" class="list"></div>
+      <div id="run-detail" class="detail"><p class="hint">点击左侧 run 查看步骤时间线与采集明细</p></div>
+    </div>
+  </section>
+
+  <section id="tab-sources" class="tab">
+    <div class="filters">
+      <select id="src-status"><option value="">全部状态</option><option>success</option><option>partial</option><option>failed</option><option>skipped</option></select>
+      <input id="src-group" placeholder="source_group 筛选">
+      <button id="src-refresh">刷新</button>
+      <span class="hint">展示最近一次 engine run 的采集明细</span>
+    </div>
+    <div id="source-table"></div>
+  </section>
+
+  <section id="tab-reports" class="tab">
+    <div id="report-view"></div>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

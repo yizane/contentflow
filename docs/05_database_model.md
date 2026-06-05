@@ -1,0 +1,39 @@
+# 05 — Database Model（MySQL 唯一数据源）
+
+正式 schema：`db/mysql_schema.sql`（单文件，`npm run db:init` / `db:migrate` 幂等应用；未来需要增量演进时再建 `db/mysql_migrations/` 目录，runner 已支持）。
+
+## 内容表
+
+| 表 | 说明 | 正文/大字段 |
+|---|---|---|
+| articles | 文章主记录（状态机） | — |
+| article_versions | 版本（v1/v2…） | **article_markdown** + article/quality/fact_check/source_resolution/seo/geo/dual JSON |
+| channel_outputs | 渠道稿 | **content_markdown** + content_json |
+| publish_packages | 发布包全量 | readme/article markdown + 全部 JSON + channels_json |
+| quality_reports / fact_checks / source_resolutions / seo_geo_scores | 评审记录 | raw_json |
+| model_runs | OpenClaw 调用 | **task_prompt / raw_response**（内部数据） + parsed_output_json |
+| topic_candidates / article_jobs / source_items | 选题与采集 | raw_json |
+| engine_runs / engine_reports / review_actions | 运行与审计 | report_markdown |
+
+## Trace 表（migration 004）
+
+| 表 | 用途 |
+|---|---|
+| workflow_steps | engine run 步骤明细（status/duration/input/output summary） |
+| source_collection_logs | 每个源的采集结果（success/partial/failed/skipped） |
+| workflow_events | 细粒度事件流（level: debug/info/warning/error） |
+| status_transitions | 实体状态流转（entity_type + entity_id + from/to + reason + actor） |
+
+## 历史说明
+
+（SQLite 时代的 schema/migrations/数据文件已在 v1.0-rc1 清理中全部删除；数据已完整迁入 MySQL。）
+
+## Config 表（Web 管理页编辑入口）
+
+| 表 | 用途 |
+|---|---|
+| config_keywords | 关键词库（结构化，每行一词，enabled 开关） |
+| config_sources | 采集源（结构化，每行一源） |
+| app_configs | 文档型配置：internal_claims/production_policy/models/sources_yaml/keywords_csv + 全部 prompts + 全部 schemas（version/sha/updated_by） |
+
+运行时一律读 DB（config_lib 进程级缓存）；仓库 config/、prompts/、schemas/ 文件为 seed，`npm run config:sync` 灌入 DB（updated_by != file-sync 的 Web 修改默认不覆盖，--force 才覆盖）。

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyfus-content-agent/quality.schema.json",
+  "title": "Flyfus Quality Gate Output",
+  "description": "质量门评分输出契约。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["score", "publishRecommendation", "breakdown", "issues", "requiredFixes"],
+  "properties": {
+    "score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "总分 0-100。>=80 publish；70-79 revise；<70 reject"
+    },
+    "publishRecommendation": {
+      "type": "string",
+      "enum": ["publish", "revise", "reject"]
+    },
+    "breakdown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["searchIntent", "informationGain", "actionability", "seo", "geo", "facts", "brandFit"],
+      "properties": {
+        "searchIntent": { "type": "number", "minimum": 0, "maximum": 20 },
+        "informationGain": { "type": "number", "minimum": 0, "maximum": 20 },
+        "actionability": { "type": "number", "minimum": 0, "maximum": 15 },
+        "seo": { "type": "number", "minimum": 0, "maximum": 15 },
+        "geo": { "type": "number", "minimum": 0, "maximum": 15 },
+        "facts": { "type": "number", "minimum": 0, "maximum": 10 },
+        "brandFit": { "type": "number", "minimum": 0, "maximum": 5 }
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "发现的问题，每条注明维度，如 [geo] 缺少日期声明"
+    },
+    "requiredFixes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "revise/reject 时必须修复的事项"
+    }
+  }
+}

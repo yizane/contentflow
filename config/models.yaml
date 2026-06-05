@@ -1,0 +1,40 @@
+# 模型配置 — Content Generation Engine
+
+generation_strategies:
+  default: balanced
+  supported:
+    - balanced
+    - seo_first
+    - geo_first
+
+# 当前单模型；多模型并行生成为 P2 TODO（架构已预留：每个 task_type 一个数组，enabled 控制启用）。
+# 注意：openclaw provider 当前仅 flyposter-ai；model 为空时使用 OpenClaw 默认模型。
+
+default:
+  provider: openclaw
+  model: flyposter-ai/gpt-5.5
+  thinking: off
+
+article_generation:
+  - name: gpt-5.5
+    provider: openclaw
+    model: flyposter-ai/gpt-5.5
+    enabled: true
+
+topic_generation:
+  - name: gpt-5.5
+    provider: openclaw
+    model: flyposter-ai/gpt-5.5
+    enabled: true
+
+fact_check:
+  - name: gpt-5.5
+    provider: openclaw
+    model: flyposter-ai/gpt-5.5
+    enabled: true
+
+channel_repurpose:
+  - name: gpt-5.5
+    provider: openclaw
+    model: flyposter-ai/gpt-5.5
+    enabled: true

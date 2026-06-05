@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyfus-content-agent/channel_outputs.schema.json",
+  "title": "Flyfus Channel Output",
+  "description": "单个渠道改写输出的契约。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["channel", "title", "titleCandidates", "contentMarkdown", "notes", "status"],
+  "properties": {
+    "channel": {
+      "type": "string",
+      "enum": ["wechat", "douyin", "xiaohongshu", "linkedin", "x_thread"]
+    },
+    "title": { "type": "string", "minLength": 4 },
+    "titleCandidates": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "xiaohongshu 必须 5 个；其他渠道可为空数组"
+    },
+    "contentMarkdown": { "type": "string", "minLength": 200 },
+    "notes": { "type": "string", "description": "给运营的人工提示，没有写空字符串" },
+    "status": { "type": "string", "enum": ["generated"] }
+  }
+}

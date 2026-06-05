@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyfus-content-agent/geo_score.schema.json",
+  "title": "Flyfus GEO Score Output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["geoScore", "breakdown", "strengths", "issues", "recommendedFixes", "geoRecommendation"],
+  "properties": {
+    "geoScore": { "type": "number", "minimum": 0, "maximum": 100 },
+    "breakdown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["answerFirst", "extractableStructure", "entityClarity", "citationReadiness", "questionCoverage", "comparisonAndCriteria", "factualCaution", "chunkability"],
+      "properties": {
+        "answerFirst": { "type": "number", "minimum": 0, "maximum": 15 },
+        "extractableStructure": { "type": "number", "minimum": 0, "maximum": 15 },
+        "entityClarity": { "type": "number", "minimum": 0, "maximum": 15 },
+        "citationReadiness": { "type": "number", "minimum": 0, "maximum": 15 },
+        "questionCoverage": { "type": "number", "minimum": 0, "maximum": 10 },
+        "comparisonAndCriteria": { "type": "number", "minimum": 0, "maximum": 10 },
+        "factualCaution": { "type": "number", "minimum": 0, "maximum": 10 },
+        "chunkability": { "type": "number", "minimum": 0, "maximum": 10 }
+      }
+    },
+    "strengths": { "type": "array", "items": { "type": "string" } },
+    "issues": { "type": "array", "items": { "type": "string" } },
+    "recommendedFixes": { "type": "array", "items": { "type": "string" } },
+    "geoRecommendation": { "type": "string", "enum": ["excellent", "good", "revise", "poor"] }
+  }
+}

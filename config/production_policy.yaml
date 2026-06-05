@@ -1,0 +1,23 @@
+version: 1
+
+dedupe:
+  normalized_topic_window_days: 30
+  slug_window_days: 90
+  primary_keyword_window_days: 14
+  max_articles_per_primary_keyword_in_window: 2
+
+topic_generation:
+  reject_if_similar_topic_recent: true
+  reject_if_slug_exists: true
+  prefer_new_keyword_clusters: true
+
+batch_limits:
+  default_limit: 1
+  max_limit_without_force: 5
+
+review:
+  require_channels_for_package: false
+  required_channels:
+    - wechat
+    - douyin
+    - xiaohongshu

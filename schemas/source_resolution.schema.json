@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyfus-content-agent/source_resolution.schema.json",
+  "title": "Flyfus Source Resolution Output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["articleId", "overallResolutionStatus", "items", "mustFixRemaining", "readyForRevision"],
+  "properties": {
+    "articleId": { "type": "string", "minLength": 4 },
+    "overallResolutionStatus": {
+      "type": "string",
+      "enum": ["resolved", "partially_resolved", "needs_manual_review"]
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim", "claimCategory", "risk", "action", "recommendedSourceGroup", "resolvedStatus", "source", "evidenceSummary", "suggestedRewrite", "notes"],
+        "properties": {
+          "claim": { "type": "string", "minLength": 8 },
+          "claimCategory": { "type": "string" },
+          "risk": { "type": "string", "enum": ["low", "medium", "high"] },
+          "action": { "type": "string", "enum": ["keep", "soften", "remove", "cite_required"] },
+          "recommendedSourceGroup": { "type": "string" },
+          "resolvedStatus": {
+            "type": "string",
+            "enum": ["resolved", "partially_resolved", "not_found", "needs_manual_review"]
+          },
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["title", "url", "sourceName", "sourceType", "sourceTrust"],
+            "properties": {
+              "title": { "type": "string" },
+              "url": { "type": "string" },
+              "sourceName": { "type": "string" },
+              "sourceType": { "type": "string" },
+              "sourceTrust": {
+                "type": "string",
+                "enum": ["primary_fact", "needs_cross_check", "discovery_only", "internal_product_claim", ""]
+              }
+            }
+          },
+          "evidenceSummary": { "type": "string" },
+          "suggestedRewrite": { "type": "string" },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+    "mustFixRemaining": { "type": "array", "items": { "type": "string" } },
+    "readyForRevision": { "type": "boolean" }
+  }
+}

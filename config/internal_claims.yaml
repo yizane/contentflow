@@ -1,0 +1,72 @@
+version: 1
+
+product:
+  name: Flyfus
+  category: "Amazon AI Shopping / Rufus data operations tool"
+  audience: "Amazon sellers"
+
+claim_policy:
+  purpose: "Define allowed public product claims for Flyfus content generation."
+  rules:
+    - "Only claims listed under allowed_claims may be stated as Flyfus product capabilities."
+    - "Claims not listed here must be softened, removed, or marked needs_internal_review."
+    - "Do not promise ranking, recommendation, conversion, sales lift, ACoS reduction, or AI citation."
+    - "Do not imply access to Amazon private ranking algorithms."
+    - "Do not imply guaranteed Alexa for Shopping / Rufus recommendation."
+
+allowed_claims:
+  - id: "flyfus_input_asin_keyword"
+    claim: "Flyfus supports analyzing by ASIN or keyword input."
+    public_wording: "输入 ASIN 或关键词，Flyfus 可以生成面向亚马逊卖家的分析报告。"
+    trust: "internal_product_claim"
+    allowed: true
+
+  - id: "flyfus_report_10min"
+    claim: "Flyfus can generate a deep report in about 10 minutes."
+    public_wording: "Flyfus 的目标是帮助卖家在较短时间内生成结构化运营分析报告；具体耗时取决于数据量和任务复杂度。"
+    trust: "internal_product_claim"
+    allowed: true
+    notes: "避免绝对化写死 10 分钟，正式营销页可另行确认。"
+
+  - id: "flyfus_buyer_concerns"
+    claim: "Flyfus helps identify buyer concerns from Rufus-style question data."
+    public_wording: "Flyfus 可以帮助卖家从 Rufus 问答/AI 购物问答信号中整理买家关心的问题和购买疑虑。"
+    trust: "internal_product_claim"
+    allowed: true
+
+  - id: "flyfus_listing_gap"
+    claim: "Flyfus helps identify semantic gaps in Listing."
+    public_wording: "Flyfus 可以辅助检查 Listing 是否缺少关键场景、人群、属性和问题回答。"
+    trust: "internal_product_claim"
+    allowed: true
+
+  - id: "flyfus_intent_keywords"
+    claim: "Flyfus helps identify high-intent keywords."
+    public_wording: "Flyfus 可以帮助卖家整理更贴近买家决策场景的意图词。"
+    trust: "internal_product_claim"
+    allowed: true
+
+  - id: "flyfus_report_sections"
+    claim: "Flyfus report can support product direction, listing optimization direction, and advertising keyword direction."
+    public_wording: "Flyfus 报告可用于辅助选品方向、Listing 优化方向和广告意图词梳理。"
+    trust: "internal_product_claim"
+    allowed: true
+
+forbidden_claims:
+  - "Flyfus guarantees ranking improvement."
+  - "Flyfus guarantees Alexa for Shopping / Rufus recommendation."
+  - "Flyfus guarantees AI citation."
+  - "Flyfus guarantees ACoS reduction."
+  - "Flyfus has access to Amazon private ranking algorithm."
+  - "Flyfus can manipulate Amazon AI recommendations."
+  - "Flyfus can force products to be recommended."
+  - "Flyfus knows the complete Rufus/Alexa recommendation formula."
+
+preferred_cta:
+  soft:
+    - "如果你已经有一批核心 SKU，可以先用 Flyfus 做一次 Listing 语义体检，看看页面是否覆盖了买家的场景、疑虑和意图词。"
+    - "你可以用 Flyfus 把 Rufus 问答/AI 购物问答信号整理成 Listing 改造清单，再交给运营团队逐条落地。"
+    - "Flyfus 更适合作为选品、Listing 优化和广告意图词分析的辅助工具，而不是所谓的排名捷径。"
+
+disclaimer:
+  public_safe_wording: "Flyfus 不承诺排名、推荐或转化结果；它的价值在于帮助卖家更系统地理解买家意图，并把这些信号转化为可执行的运营清单。"

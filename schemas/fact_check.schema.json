@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyfus-content-agent/fact_check.schema.json",
+  "title": "Flyfus Fact Check Output",
+  "description": "事实核查 Agent 的输出契约：逐条 claim 定级 + 处理建议 + 发布就绪判断。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["articleTitle", "overallRisk", "claims", "mustFixBeforePublish", "niceToHaveBeforePublish", "publishReadiness"],
+  "properties": {
+    "articleTitle": {
+      "type": "string",
+      "minLength": 4,
+      "description": "被核查文章的标题"
+    },
+    "overallRisk": {
+      "type": "string",
+      "enum": ["low", "medium", "high"],
+      "description": "整篇文章的事实风险级别"
+    },
+    "claims": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim", "category", "risk", "sourceNeeded", "recommendedSourceGroup", "action", "reason", "suggestedRewrite"],
+        "properties": {
+          "claim": {
+            "type": "string",
+            "minLength": 8,
+            "description": "从文章中抽取的事实性表述（原文或紧贴原文的概括）"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "amazon_official_policy",
+              "amazon_rufus_feature",
+              "google_search_policy",
+              "seo_geo_best_practice",
+              "marketplace_trend",
+              "flyfus_product_claim",
+              "operational_advice"
+            ]
+          },
+          "risk": {
+            "type": "string",
+            "enum": ["low", "medium", "high"]
+          },
+          "sourceNeeded": {
+            "type": "boolean",
+            "description": "正式发布前是否需要来源支撑"
+          },
+          "recommendedSourceGroup": {
+            "type": "string",
+            "enum": [
+              "official_amazon",
+              "official_google",
+              "marketplace_news",
+              "seo_geo_ai_search",
+              "chinese_crossborder_news",
+              "internal_flyfus_data"
+            ],
+            "description": "推荐去哪类源核查（中文行业源不可作为 Amazon 官方事实唯一来源）"
+          },
+          "action": {
+            "type": "string",
+            "enum": ["keep", "soften", "remove", "cite_required"]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 4,
+            "description": "定级与动作的理由"
+          },
+          "suggestedRewrite": {
+            "type": "string",
+            "description": "soften/cite_required 时必须给出具体改写；keep/remove 可为空字符串"
+          }
+        }
+      }
+    },
+    "mustFixBeforePublish": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "发布前必须处理的事项清单"
+    },
+    "niceToHaveBeforePublish": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "发布前可选的优化事项"
+    },
+    "publishReadiness": {
+      "type": "string",
+      "enum": ["ready_after_minor_edits", "needs_fact_sources", "not_ready"]
+    }
+  }
+}
