@@ -5,6 +5,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const my = require('./mysql_lib');
 const { loadPolicy } = require('./production_policy_lib');
+const logger = require('./logger_lib');
 
 const ROOT = my.ROOT;
 
@@ -53,6 +54,7 @@ async function runStep(name, script, args = [], engineRunId, { skipped = false }
   await trace.logWorkflowEvent({ engineRunId, workflowStepId: stepId, eventType: 'step_started', level: 'info', message: `步骤开始: ${name}` });
 
   process.stdout.write(`\n=== [engine] ${name} ===\n`);
+  logger.log(`[${engineRunId}] 步骤开始: ${name} ${args.join(' ')}`);
   let outcome;
   try {
     const out = execFileSync('node', [path.join(ROOT, 'scripts', script), ...args], {
@@ -60,6 +62,7 @@ async function runStep(name, script, args = [], engineRunId, { skipped = false }
       env: { ...process.env, ENGINE_RUN_ID: engineRunId, WORKFLOW_STEP_ID: stepId },
     });
     process.stdout.write(out.trim().slice(0, 1200) + '\n');
+    logger.log(`[${engineRunId}] 步骤输出 ${name}:\n${out.trim().slice(0, 3000)}`);
     outcome = { name, ok: true, result: lastJson(out) };
   } catch (err) {
     const stdout = (err.stdout || '').toString();
@@ -67,6 +70,7 @@ async function runStep(name, script, args = [], engineRunId, { skipped = false }
     process.stdout.write((stdout + stderr).trim().slice(0, 1200) + '\n');
     const parsed = lastJson(stdout);
     outcome = { name, ok: false, result: parsed, error: (parsed && parsed.error) || stderr.slice(0, 300) || 'unknown error' };
+    logger.logError(`[${engineRunId}] 步骤失败 ${name}: ${outcome.error}\nstdout: ${stdout.slice(0, 2000)}\nstderr: ${stderr.slice(0, 1000)}`);
   }
 
   const hasWarnings = outcome.result && Array.isArray(outcome.result.warnings) && outcome.result.warnings.length > 0;
@@ -202,6 +206,7 @@ async function main() {
 
   process.stdout.write('\n=== [engine] 最终报告 ===\n');
   console.log(JSON.stringify(summary, null, 2));
+  logger.log(`[${engineRunId}] 最终报告: ${JSON.stringify(summary)}`);
   if (status === 'failed') process.exit(1);
 }
 

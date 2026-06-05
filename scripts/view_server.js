@@ -8,6 +8,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const my = require('./mysql_lib');
 const rc = require('./run_control_lib');
+const logger = require('./logger_lib');
 
 const ROOT = my.ROOT;
 const PORT = parseInt(process.env.PORT || '5177', 10);
@@ -264,6 +265,7 @@ const server = http.createServer(async (req, res) => {
     }
     json(res, 404, { ok: false, error: 'not found' });
   } catch (err) {
+    logger.logError(`Viewer API 错误 ${req.url}: ${err.message}`, { name: 'viewer' });
     json(res, 500, { ok: false, error: err.message });
   }
 });

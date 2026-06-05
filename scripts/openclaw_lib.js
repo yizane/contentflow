@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
+const logger = require('./logger_lib');
 
 // 读取 config/models.yaml（轻量解析，结构固定）
 function loadModels() {
@@ -69,6 +70,7 @@ function runAgentTask({ sessionKey, message, timeoutSec = 900, model = null }) {
   const args = ['agent', '--session-key', sessionKey, '--message', message, '--timeout', String(timeoutSec), '--json'];
   if (model) args.push('--model', model);
   const started = Date.now();
+  logger.log(`OpenClaw 调用: ${sessionKey}（prompt ${message.length} 字符, timeout ${timeoutSec}s）`, { name: 'openclaw' });
   let stdout = '';
   try {
     stdout = execFileSync('openclaw', args, {
@@ -77,6 +79,7 @@ function runAgentTask({ sessionKey, message, timeoutSec = 900, model = null }) {
       maxBuffer: 64 * 1024 * 1024,
     });
   } catch (err) {
+    logger.logError(`OpenClaw 失败: ${sessionKey}: ${(err.stderr || err.stdout || err.message || '').toString().slice(0, 800)}`, { name: 'openclaw' });
     return {
       ok: false,
       error: `openclaw CLI 调用失败: ${(err.stderr || err.stdout || err.message || '').toString().slice(0, 600)}`,
@@ -109,6 +112,7 @@ function runAgentTask({ sessionKey, message, timeoutSec = 900, model = null }) {
       (Array.isArray(r.payloads) && r.payloads[0] && r.payloads[0].text) ||
       null;
   }
+  logger.log(`OpenClaw 完成: ${sessionKey}（${Date.now() - started}ms, 回复 ${(visibleText || '').length} 字符）`, { name: 'openclaw' });
   return { ok: true, error: null, visibleText, raw: parsed, durationMs: Date.now() - started };
 }
 

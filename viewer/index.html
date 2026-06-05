@@ -2,28 +2,29 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>Flyfus Content Agent — Trace Console (local read-only)</title>
+<title>Flyfus 内容引擎控制台（本地）</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header>
-  <h1>Flyfus Trace Console <span class="badge">local · read-only</span></h1>
+  <h1>Flyfus 内容引擎控制台 <span class="badge">本地 · 调试用</span></h1>
   <nav>
-    <button data-tab="articles" class="active">Articles</button>
-    <button data-tab="runs">Engine Runs</button>
-    <button data-tab="sources">Sources</button>
-    <button data-tab="reports">Reports</button>
+    <button data-tab="articles" class="active">文章</button>
+    <button data-tab="runs">运行记录</button>
+    <button data-tab="sources">采集源</button>
+    <button data-tab="reports">报告</button>
   </nav>
 </header>
 
 <div id="run-control" class="run-control">
   <div class="rc-status" id="rc-status">加载中…</div>
   <div class="rc-buttons">
-    <button id="rc-run" disabled>Run Today</button>
-    <button id="rc-retry" disabled>Retry Failed</button>
-    <button id="rc-rebuild" disabled>Rebuild Today</button>
-    <button id="rc-report">Generate Report</button>
+    <button id="rc-run" disabled>跑今天</button>
+    <button id="rc-retry" disabled>重试失败</button>
+    <button id="rc-rebuild" disabled>重建今天</button>
+    <button id="rc-report">生成报告</button>
   </div>
+  <div id="rc-reason" class="rc-reason"></div>
   <div class="rc-actions" id="rc-actions"></div>
 </div>
 
@@ -31,23 +32,23 @@
   <section id="tab-articles" class="tab active">
     <div class="split">
       <div id="article-list" class="list"></div>
-      <div id="article-detail" class="detail"><p class="hint">点击左侧文章查看详情与 Trace</p></div>
+      <div id="article-detail" class="detail"><p class="hint">点击左侧文章查看详情、状态历史和正文</p></div>
     </div>
   </section>
 
   <section id="tab-runs" class="tab">
     <div class="split">
       <div id="run-list" class="list"></div>
-      <div id="run-detail" class="detail"><p class="hint">点击左侧 run 查看步骤时间线与采集明细</p></div>
+      <div id="run-detail" class="detail"><p class="hint">点击左侧某次运行，查看工作流每一步的执行情况</p></div>
     </div>
   </section>
 
   <section id="tab-sources" class="tab">
     <div class="filters">
-      <select id="src-status"><option value="">全部状态</option><option>success</option><option>partial</option><option>failed</option><option>skipped</option></select>
-      <input id="src-group" placeholder="source_group 筛选">
+      <select id="src-status"><option value="">全部状态</option><option value="success">成功</option><option value="partial">部分成功</option><option value="failed">失败</option><option value="skipped">已跳过</option></select>
+      <input id="src-group" placeholder="按分组筛选（如 official_amazon）">
       <button id="src-refresh">刷新</button>
-      <span class="hint">展示最近一次 engine run 的采集明细</span>
+      <span class="hint">展示最近一次运行时，每个信息源的抓取结果</span>
     </div>
     <div id="source-table"></div>
   </section>

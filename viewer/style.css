@@ -13,8 +13,22 @@ main { padding: 16px 20px; }
 .rc-buttons button:disabled { background: #c4cad6; cursor: not-allowed; }
 #rc-rebuild { background: #d98e0b; }
 #rc-report { background: #5a6478; }
+.rc-reason { width: 100%; font-size: 12px; }
 .rc-actions { width: 100%; font-size: 12px; color: #667; }
 .rc-actions .evt { display: inline-block; margin-right: 16px; border: none; }
+/* 工作流流程条 */
+.pipeline { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; margin-top: 10px; padding: 8px 10px; background: #f6f8fc; border-radius: 6px; }
+.pipe-node { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 3px 8px; border-radius: 12px; background: #fff; border: 1px solid #dde; }
+.pipe-dot { width: 9px; height: 9px; border-radius: 50%; background: #c4cad6; }
+.pipe-node.success .pipe-dot, .pipe-node.succeeded .pipe-dot { background: #2e9e5b; }
+.pipe-node.warning .pipe-dot, .pipe-node.partial .pipe-dot { background: #d98e0b; }
+.pipe-node.failed .pipe-dot { background: #d64545; }
+.pipe-node.running .pipe-dot { background: #3b6fd4; animation: blink 1s infinite; }
+.pipe-node.skipped { opacity: 0.55; }
+.pipe-node.pending { opacity: 0.45; border-style: dashed; }
+.pipe-time { color: #99a; font-size: 11px; }
+.pipe-arrow { color: #aab; margin: 0 2px; }
+@keyframes blink { 50% { opacity: 0.3; } }
 .tab { display: none; }
 .tab.active { display: block; }
 .split { display: grid; grid-template-columns: 360px 1fr; gap: 16px; }

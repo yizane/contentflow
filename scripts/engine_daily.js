@@ -11,6 +11,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const my = require('./mysql_lib');
 const rc = require('./run_control_lib');
+const logger = require('./logger_lib');
 
 const ROOT = my.ROOT;
 const MODE_ACTION = { start: 'start_daily', retry: 'retry_daily', rebuild: 'rebuild_daily', force: 'force_daily' };
@@ -37,6 +38,7 @@ async function main() {
   }
 
   const decision = await rc.canStartDaily({ dailyKey: args.dailyKey, mode: args.mode });
+  logger.log(`engine:daily mode=${args.mode} dailyKey=${args.dailyKey} → ${decision.allowed ? '允许' : '拒绝'}: ${decision.reason}`);
 
   if (args.planOnly) {
     await rc.recordRunAction({
