@@ -166,7 +166,7 @@ function RunDetail({ nav, params, toast, onAction }) {
         </div></div>
         <div style={{ padding: "20px 22px" }}>
           {tab === "steps" && <><RunSteps steps={steps} nav={nav} /><FailedModelRuns runs={failedModelRuns} /></>}
-          {tab === "sources" && <SourceLogs sources={sources} />}
+          {tab === "sources" && <SourceLogs sources={sources} classification={data.sourceClassification} />}
           {tab === "actions" && <><ActionLog actions={actions} /><RunTransitions transitions={transitions} nav={nav} /></>}
         </div>
       </Card>
@@ -210,11 +210,35 @@ function RunSteps({ steps, nav }) {
   );
 }
 
-function SourceLogs({ sources }) {
+/* 采集内容分类统计条 */
+function SourceClassificationStats({ classification }) {
+  if (!classification) return null;
+  const cts = Object.entries(classification.byContentType || {}).sort((a, b) => b[1] - a[1]);
+  const bcs = Object.entries(classification.byBusinessCategory || {}).sort((a, b) => b[1] - a[1]);
+  if (!cts.length && !bcs.length && !classification.unclassified) return null;
+  return (
+    <div style={{ marginBottom: 14, padding: "11px 14px", border: "1px solid var(--line)", borderRadius: 10, background: "var(--surface-2)" }}>
+      <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 8 }}>本次采集内容分类</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+        {cts.map(([k, c]) => <span key={k} className="chip" style={{ height: 22, fontSize: 11.5 }}>{FLY.taxLabel("contentTypes", k)} <b className="tnum">{c}</b></span>)}
+        {bcs.length > 0 && <span style={{ width: 1, height: 16, background: "var(--line)", margin: "0 4px" }} />}
+        {bcs.slice(0, 8).map(([k, c]) => <span key={k} className="chip" style={{ height: 22, fontSize: 11.5, background: "var(--brand-50)", borderColor: "var(--brand-200)", color: "var(--brand-700)" }}>{FLY.taxLabel("businessCategories", k)} <b className="tnum">{c}</b></span>)}
+        {classification.unclassified > 0 && <span className="chip" style={{ height: 22, fontSize: 11.5, color: "var(--ink-4)" }}>未分类 {classification.unclassified}</span>}
+      </div>
+    </div>
+  );
+}
+
+function SourceLogs({ sources, classification }) {
   const [status, setStatus] = useState("all");
   const [group, setGroup] = useState("all");
   if (!sources || sources.length === 0) {
-    return <Empty icon="rss" title="本次运行没有采集源日志" desc="较早的运行没有记录采集明细，或该运行未执行采集步骤。" />;
+    return (
+      <div>
+        <SourceClassificationStats classification={classification} />
+        <Empty icon="rss" title="本次运行没有采集源日志" desc="较早的运行没有记录采集明细，或该运行未执行采集步骤。" />
+      </div>
+    );
   }
   const groups = ["all", ...Array.from(new Set(sources.map(s => s.group)))];
   const SS = { success: ["成功", "ok"], partial: ["部分成功", "warn"], failed: ["失败", "bad"], skipped: ["跳过", "mut"] };
@@ -224,6 +248,7 @@ function SourceLogs({ sources }) {
 
   return (
     <div>
+      <SourceClassificationStats classification={classification} />
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
         {failCount > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", background: "var(--bad-soft)", border: "1px solid var(--bad-line)", borderRadius: 9, fontSize: 12.5, color: "var(--bad)", fontWeight: 600 }}>

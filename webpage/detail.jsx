@@ -40,8 +40,18 @@ function SummaryHead({ a }) {
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 9, flexWrap: "wrap" }}>
           <Badge tone={st.tone} lg>{st.text}</Badge>
           {a.topicScore != null && <span className="chip" style={{ height: 24, whiteSpace: "nowrap" }}>{a.priority} · 选题 {a.topicScore} 分</span>}
+          {a.contentType && <span className="chip" style={{ height: 24, whiteSpace: "nowrap" }} title="内容类型">{FLY.taxLabel("contentTypes", a.contentType)}</span>}
+          {a.businessCategory && <span className="chip" style={{ height: 24, whiteSpace: "nowrap", background: "var(--brand-50)", borderColor: "var(--brand-200)", color: "var(--brand-700)" }} title="业务分类">{FLY.taxLabel("businessCategories", a.businessCategory)}</span>}
+          {a.topicCluster && <span className="chip" style={{ height: 24, whiteSpace: "nowrap" }} title="主题簇">{FLY.taxLabel("topicClusters", a.topicCluster)}</span>}
           <span className="mono" style={{ fontSize: 12, color: "var(--ink-4)" }}>{a.slug}</span>
         </div>
+        {a.classification && (
+          <div style={{ fontSize: 12, color: "var(--ink-3)", marginBottom: 9, lineHeight: 1.5 }}>
+            分类{a.classification.classifierType === "rules" ? "（规则判定）" : a.classification.classifierType === "openclaw" ? "（AI 判定）" : a.classification.classifierType === "inherited" ? "（继承自选题）" : ""}
+            {a.classification.confidence != null && <>　置信度 <b className="tnum" style={{ color: a.classification.confidence >= 0.8 ? "var(--ok)" : a.classification.confidence >= 0.6 ? "var(--warn)" : "var(--bad)" }}>{(a.classification.confidence * 100).toFixed(0)}%</b></>}
+            {a.classification.reason && <>　· {a.classification.reason}</>}
+          </div>
+        )}
         <h1 style={{ margin: "0 0 14px", fontSize: 22, fontWeight: 800, letterSpacing: "-.02em", lineHeight: 1.3, textWrap: "pretty" }}>{a.title}</h1>
         <StatusFlow status={a.status} />
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(110px,1fr))", gap: 0, marginTop: 16, border: "1px solid var(--line)", borderRadius: 11, overflow: "hidden" }}>

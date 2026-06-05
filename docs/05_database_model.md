@@ -37,3 +37,19 @@
 | app_configs | 文档型配置：internal_claims/production_policy/models/sources_yaml/keywords_csv + 全部 prompts + 全部 schemas（version/sha/updated_by） |
 
 运行时一律读 DB（config_lib 进程级缓存）；仓库 config/、prompts/、schemas/ 文件为 seed，`npm run config:sync` 灌入 DB（updated_by != file-sync 的 Web 修改默认不覆盖，--force 才覆盖）。
+
+## 内容分类字段（migration 006）
+
+`source_items` / `topic_candidates` 增加：`content_type`、`business_category`、`topic_cluster`、`classification_confidence DECIMAL(5,4)`、`classification_reason TEXT`（均有索引）。
+
+`article_jobs` / `articles` / `article_versions` 增加：`content_type`、`business_category`、`topic_cluster`（均有索引；置信度与原因查 `content_classifications`）。
+
+新增 `content_classifications` 表（分类过程审计）：
+
+- `entity_type` + `entity_id`：被分类实体（source_items / topic_candidates / articles）
+- `content_type` / `business_category` / `topic_cluster` / `confidence` / `reason`
+- `classifier_type`：rules（规则）/ openclaw（AI）/ topic_generation（选题直出）/ inherited（继承）
+- `model_run_id`：AI 分类时关联 model_runs
+- 同一实体可有多条记录（重分类历史），最新一条为当前生效来源
+
+枚举值由 `config/content_taxonomy.yaml` 定义（app_configs key: `content_taxonomy`），分类可后续人工修正（当前只做自动分类）。

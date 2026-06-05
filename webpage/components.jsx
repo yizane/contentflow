@@ -178,6 +178,30 @@ function Empty({ icon = "inbox", title, desc, action }) {
   );
 }
 
+/* ---------- 分类标签导航行（业务分类 / 内容类型快速筛选） ---------- */
+function TaxTabs({ label, kind, counts, value, onChange }) {
+  // counts: { key: n }，只展示有内容的分类
+  const items = Object.entries(counts || {}).filter(([k, n]) => k && n > 0).sort((a, b) => b[1] - a[1]);
+  if (!items.length) return null;
+  const total = items.reduce((s, [, n]) => s + n, 0);
+  const chip = (k, text, n) => (
+    <button key={k || "_all"} onClick={() => onChange(k)} className="chip"
+      style={{ cursor: "pointer", height: 24, fontSize: 12,
+        border: value === k ? "1px solid var(--brand-300)" : "1px solid var(--line)",
+        background: value === k ? "var(--brand-50)" : "var(--mut-soft)",
+        color: value === k ? "var(--brand-700)" : "var(--ink-2)", fontWeight: 700 }}>
+      {text}<span style={{ fontSize: 10.5, opacity: .7 }}>{n}</span>
+    </button>
+  );
+  return (
+    <div style={{ borderTop: "1px solid var(--line-soft)", padding: "8px 16px", display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+      <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-4)", flex: "0 0 56px" }}>{label}</span>
+      {chip("", "全部", total)}
+      {items.map(([k, n]) => chip(k, FLY.taxLabel(kind, k), n))}
+    </div>
+  );
+}
+
 /* ---------- Step / status helpers ---------- */
 const STEP_TONE = { pending: "mut", running: "info", success: "ok", warning: "warn", failed: "bad", skipped: "mut" };
 const STEP_LABEL = { pending: "等待中", running: "运行中", success: "成功", warning: "有警告", failed: "失败", skipped: "已跳过" };
@@ -191,7 +215,7 @@ function fmtDur(ms) {
 }
 
 Object.assign(window, {
-  Icon, Badge, Score, Meter, Btn, Card, CardHead, Modal, Toasts, Empty,
+  Icon, Badge, Score, Meter, Btn, Card, CardHead, Modal, Toasts, Empty, TaxTabs,
   toneOfScore, scoreColor, STEP_TONE, STEP_LABEL, fmtDur,
   useState, useEffect, useRef, useMemo,
 });

@@ -26,9 +26,10 @@ Runtime 数据全部在 MySQL（21 表）：
 
 - 内容：`articles`、`article_versions`（正文 `article_markdown` + 全部 JSON）、`channel_outputs`、`publish_packages`、`quality_reports`、`fact_checks`、`source_resolutions`、`seo_geo_scores`、`topic_candidates`、`article_jobs`、`source_items`
 - 运行：`engine_runs`、`model_runs`（含 prompt/raw_response，内部数据）、`engine_reports`、`review_actions`、`run_actions`、`schema_migrations`
+- 分类：`content_classifications`（分类过程审计；实体表自带 content_type / business_category / topic_cluster 字段）
 - Trace：`workflow_steps`、`source_collection_logs`、`workflow_events`、`status_transitions`
 
-本仓库只存代码与静态配置（`config/`、`prompts/`、`schemas/`、`db/`、`scripts/`、`viewer/`、`docs/`）。
+本仓库只存代码与静态配置（`config/`、`prompts/`、`schemas/`、`db/`、`scripts/`（pipeline / tools / lib 三层）、`webpage/`、`docs/`）。
 
 ## 日常操作
 
@@ -36,12 +37,14 @@ Runtime 数据全部在 MySQL（21 表）：
 npm run engine:daily                                   # start；已完成会被拒绝
 npm run engine:daily -- --mode retry                   # 仅 failed/partial 可用
 npm run engine:daily -- --mode rebuild                 # 归档旧数据后重跑（不物理删除）
-npm run fix:sources -- --limit 5                       # needs_fact_sources → ready_for_review
+npm run sources:fix -- --limit 5                       # needs_fact_sources → ready_for_review
 npm run channels:generate -- --status ready_for_review --missing-only
-npm run export:package -- --status ready_for_review --with-channels
+npm run package:export -- --status ready_for_review --with-channels
 npm run review:mark -- --article-id <id> --status approved_for_publish
 npm run engine:report
 npm run db:list -- --with-scores
+npm run content:classify -- --all --limit 100         # 内容分类回填（规则 + AI）
+npm run db:list -- --business-category listing_geo     # 按业务分类筛选
 ```
 
 ## Daily Run Control
@@ -51,6 +54,16 @@ npm run db:list -- --with-scores
 ## Viewer（本地开发控制台）
 
 `npm run viewer` → http://127.0.0.1:5177（只绑本机）。Articles / Engine Runs / Sources / Reports 四个 tab + 顶部 Run Control 面板。只读 + 触发运行两类操作；默认不展示完整 prompt/raw_response。正式 Web 管理后台是独立项目，复用同一套 MySQL 表（契约见 docs/09）。
+
+## 内容分类（Content Taxonomy）
+
+三层分类，**source_group（来源分组）≠ content_type（内容分类）**：
+
+- `content_type`：内容形态（新闻快讯 / 平台政策 / 运营干货 / 风险警示 …，共 10 类）
+- `business_category`：业务主题（Listing GEO / 广告 PPC / 选品 / 账号合规 …，共 11 类）
+- `topic_cluster`：主题簇（更细的内容专题，共 6 簇，归属于某个 business_category）
+
+定义在 `config/content_taxonomy.yaml`；采集内容、选题、文章统一使用；分类 = 规则（confidence ≥ 0.85 直接采用）+ OpenClaw AI 兜底，结果连同 confidence/reason 写 MySQL（`content_classifications` 审计）。中文源不会只因语言被归为新闻快讯。分类可后续人工修正，当前只做自动分类。Web 项目直接按这些字段筛选。
 
 ## Web Integration
 

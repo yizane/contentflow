@@ -6,6 +6,8 @@ function Library({ nav, params }) {
   const [sub, setSub] = useState(params.sub || ""); // 待补来源细分：human / auto
   const [time, setTime] = useState("30d");
   const [score, setScore] = useState("");
+  const [ctype, setCtype] = useState(""); // 内容类型筛选
+  const [bcat, setBcat] = useState("");   // 业务分类筛选
   const [q, setQ] = useState("");
 
   useEffect(() => { if (params.filter) setFilter(params.filter); setSub(params.sub || ""); }, [params.filter, params.sub]);
@@ -19,6 +21,18 @@ function Library({ nav, params }) {
   const counts = useMemo(() => {
     const c = { all: FLY.ARTICLES.length };
     FLY.ARTICLES.forEach(a => { c[a.status] = (c[a.status] || 0) + 1; });
+    return c;
+  }, [FLY.ARTICLES]);
+
+  // 分类标签导航计数（业务分类 / 内容类型）
+  const bcatCounts = useMemo(() => {
+    const c = {};
+    FLY.ARTICLES.forEach(a => { if (a.businessCategory) c[a.businessCategory] = (c[a.businessCategory] || 0) + 1; });
+    return c;
+  }, [FLY.ARTICLES]);
+  const ctypeCounts = useMemo(() => {
+    const c = {};
+    FLY.ARTICLES.forEach(a => { if (a.contentType) c[a.contentType] = (c[a.contentType] || 0) + 1; });
     return c;
   }, [FLY.ARTICLES]);
 
@@ -38,9 +52,11 @@ function Library({ nav, params }) {
       if (score === "q85" && a.quality < 85) return false;
       if (score === "seo80" && a.seo < 80) return false;
       if (score === "geo80" && a.geo < 80) return false;
+      if (ctype && a.contentType !== ctype) return false;
+      if (bcat && a.businessCategory !== bcat) return false;
       return true;
     });
-  }, [filter, sub, q, time, score, FLY.ARTICLES]);
+  }, [filter, sub, q, time, score, ctype, bcat, FLY.ARTICLES]);
 
   const filterLabel = STATUS_TABS.find(t => t[0] === filter)?.[1];
 
@@ -85,6 +101,8 @@ function Library({ nav, params }) {
             </span>
           )}
         </div>
+        <TaxTabs label="业务分类" kind="businessCategories" counts={bcatCounts} value={bcat} onChange={setBcat} />
+        <TaxTabs label="内容类型" kind="contentTypes" counts={ctypeCounts} value={ctype} onChange={setCtype} />
       </Card>
 
       {/* List */}
@@ -107,7 +125,11 @@ function Library({ nav, params }) {
                   <tr key={a.id} className="clickable" onClick={() => nav("detail", { id: a.id })}>
                     <td className="row-title" style={{ maxWidth: 340 }}>
                       <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.title}</div>
-                      <div className="mono" style={{ fontSize: 11, color: "var(--ink-4)", fontWeight: 500, marginTop: 2 }}>{a.slug}{a.priority && a.priority !== "—" ? ` · ${a.priority}` : ""}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3, flexWrap: "wrap" }}>
+                        <span className="mono" style={{ fontSize: 11, color: "var(--ink-4)", fontWeight: 500 }}>{a.slug}{a.priority && a.priority !== "—" ? ` · ${a.priority}` : ""}</span>
+                        {a.contentType && <span className="chip" style={{ height: 18, fontSize: 10.5, padding: "0 7px" }}>{FLY.taxLabel("contentTypes", a.contentType)}</span>}
+                        {a.businessCategory && <span className="chip" style={{ height: 18, fontSize: 10.5, padding: "0 7px", background: "var(--brand-50)", borderColor: "var(--brand-200)", color: "var(--brand-700)" }}>{FLY.taxLabel("businessCategories", a.businessCategory)}</span>}
+                      </div>
                     </td>
                     <td><Badge tone={st.tone}>{st.text}</Badge></td>
                     <td><Score value={a.quality} /></td>

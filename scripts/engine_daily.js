@@ -9,9 +9,9 @@
 //   npm run engine:daily -- --plan-only               # 只评估是否允许，不执行不写 engine_runs（写一条 run_actions 评估记录）
 const path = require('path');
 const { execFileSync } = require('child_process');
-const my = require('./mysql_lib');
-const rc = require('./run_control_lib');
-const logger = require('./logger_lib');
+const my = require('./lib/mysql_lib');
+const rc = require('./lib/run_control_lib');
+const logger = require('./lib/logger_lib');
 
 const ROOT = my.ROOT;
 const MODE_ACTION = { start: 'start_daily', retry: 'retry_daily', rebuild: 'rebuild_daily', force: 'force_daily' };
@@ -106,7 +106,7 @@ async function main() {
   }
 
   // 回写 run_actions 结果
-  const my2 = require('./mysql_lib');
+  const my2 = require('./lib/mysql_lib');
   const run = (await my2.query('SELECT status FROM engine_runs WHERE id = ?', [newRunId]))[0];
   await my2.update('run_actions', {
     status: run && run.status === 'succeeded' ? 'success' : 'failed',

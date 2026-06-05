@@ -3,13 +3,29 @@
    ============================================================ */
 function TopicPool({ nav, params }) {
   const [filter, setFilter] = useState("all");
+  const [bcat, setBcat] = useState("");   // 业务分类标签导航
+  const [ctype, setCtype] = useState(""); // 内容类型标签导航
   const TABS = [["all", "全部"], ["candidate", "候选"], ["selected", "已选中"], ["generated", "已生成"], ["rejected", "被拒"]];
   const counts = useMemo(() => {
     const c = { all: FLY.TOPICS.length };
     FLY.TOPICS.forEach(t => c[t.status] = (c[t.status] || 0) + 1);
     return c;
   }, [FLY.TOPICS]);
-  const rows = FLY.TOPICS.filter(t => filter === "all" || t.status === filter);
+  const bcatCounts = useMemo(() => {
+    const c = {};
+    FLY.TOPICS.forEach(t => { if (t.businessCategory) c[t.businessCategory] = (c[t.businessCategory] || 0) + 1; });
+    return c;
+  }, [FLY.TOPICS]);
+  const ctypeCounts = useMemo(() => {
+    const c = {};
+    FLY.TOPICS.forEach(t => { if (t.contentType) c[t.contentType] = (c[t.contentType] || 0) + 1; });
+    return c;
+  }, [FLY.TOPICS]);
+  const rows = FLY.TOPICS.filter(t =>
+    (filter === "all" || t.status === filter) &&
+    (!bcat || t.businessCategory === bcat) &&
+    (!ctype || t.contentType === ctype)
+  );
 
   return (
     <div className="page fade-in">
@@ -43,7 +59,11 @@ function TopicPool({ nav, params }) {
               {l}<span style={{ fontSize: 11, opacity: .7 }}>{counts[k] || 0}</span>
             </button>
           ))}
-          <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--ink-3)", fontWeight: 600 }}>按分数排序</span>
+          <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--ink-3)", fontWeight: 600 }}>{rows.length} 条 · 按分数排序</span>
+        </div>
+        <div style={{ borderBottom: "1px solid var(--line-soft)" }}>
+          <TaxTabs label="业务分类" kind="businessCategories" counts={bcatCounts} value={bcat} onChange={setBcat} />
+          <TaxTabs label="内容类型" kind="contentTypes" counts={ctypeCounts} value={ctype} onChange={setCtype} />
         </div>
         {rows.length === 0 ? (
           <Empty icon="bulb" title="暂无该状态的选题" desc="运行今日流水线后，候选选题会出现在这里。" />
@@ -59,7 +79,15 @@ function TopicPool({ nav, params }) {
                 const rejected = t.status === "rejected";
                 return (
                   <tr key={t.id} style={{ opacity: rejected ? .72 : 1 }}>
-                    <td className="row-title" style={{ maxWidth: 380 }}><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={t.title}>{t.title}</div></td>
+                    <td className="row-title" style={{ maxWidth: 380 }}>
+                      <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={t.title}>{t.title}</div>
+                      {(t.contentType || t.businessCategory) && (
+                        <div style={{ display: "flex", gap: 5, marginTop: 3 }}>
+                          {t.contentType && <span className="chip" style={{ height: 17, fontSize: 10, padding: "0 6px" }}>{FLY.taxLabel("contentTypes", t.contentType)}</span>}
+                          {t.businessCategory && <span className="chip" style={{ height: 17, fontSize: 10, padding: "0 6px", background: "var(--brand-50)", borderColor: "var(--brand-200)", color: "var(--brand-700)" }}>{FLY.taxLabel("businessCategories", t.businessCategory)}</span>}
+                        </div>
+                      )}
+                    </td>
                     <td>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <span className="tnum" style={{ fontWeight: 800, fontSize: 15, color: scoreColor(t.score), width: 24 }}>{t.score}</span>

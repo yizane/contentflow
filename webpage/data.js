@@ -90,6 +90,7 @@
     const lines = esc(md).split("\n");
     const out = [];
     let inCode = false, inList = null, inQuote = false, tableBuf = [];
+    const paraBuf = [];
 
     const closeList = () => { if (inList) { out.push(`</${inList}>`); inList = null; } };
     const closeQuote = () => { if (inQuote) { out.push("</blockquote>"); inQuote = false; } };
@@ -112,31 +113,45 @@
 
     for (const line of lines) {
       if (/^```/.test(line.trim())) {
-        flushTable(); closeList(); closeQuote();
+        flushPara(); flushTable(); closeList(); closeQuote();
         out.push(inCode ? "</code></pre>" : "<pre><code>");
         inCode = !inCode;
         continue;
       }
       if (inCode) { out.push(line); continue; }
-      if (/^\|.*\|/.test(line.trim())) { closeList(); closeQuote(); tableBuf.push(line.trim()); continue; }
+      if (/^\|.*\|/.test(line.trim())) { flushPara(); closeList(); closeQuote(); tableBuf.push(line.trim()); continue; }
       flushTable();
       const h = line.match(/^(#{1,4})\s+(.*)$/);
-      if (h) { closeList(); closeQuote(); out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`); continue; }
-      if (/^(\*{3,}|-{3,})\s*$/.test(line.trim())) { closeList(); closeQuote(); out.push("<hr>"); continue; }
+      if (h) { flushPara(); closeList(); closeQuote(); out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`); continue; }
+      if (/^(\*{3,}|-{3,})\s*$/.test(line.trim())) { flushPara(); closeList(); closeQuote(); out.push("<hr>"); continue; }
       const q2 = line.match(/^&gt;\s?(.*)$/);
-      if (q2) { closeList(); if (!inQuote) { out.push("<blockquote>"); inQuote = true; } out.push(inline(q2[1]) + "<br>"); continue; }
+      if (q2) { flushPara(); closeList(); if (!inQuote) { out.push("<blockquote>"); inQuote = true; } out.push(inline(q2[1]) + "<br>"); continue; }
       closeQuote();
       const ul = line.match(/^\s*[-*]\s+(.*)$/);
-      if (ul) { if (inList !== "ul") { closeList(); out.push("<ul>"); inList = "ul"; } out.push(`<li>${inline(ul[1])}</li>`); continue; }
+      if (ul) { flushPara(); if (inList !== "ul") { closeList(); out.push("<ul>"); inList = "ul"; } out.push(`<li>${inline(ul[1])}</li>`); continue; }
       const ol = line.match(/^\s*\d+[.、]\s+(.*)$/);
-      if (ol) { if (inList !== "ol") { closeList(); out.push("<ol>"); inList = "ol"; } out.push(`<li>${inline(ol[1])}</li>`); continue; }
+      if (ol) { flushPara(); if (inList !== "ol") { closeList(); out.push("<ol>"); inList = "ol"; } out.push(`<li>${inline(ol[1])}</li>`); continue; }
       closeList();
-      if (line.trim() === "") continue;
-      out.push(`<p>${inline(line)}</p>`);
+      if (line.trim() === "") { flushPara(); continue; }
+      paraBuf.push(line.trim());
     }
-    flushTable(); closeList(); closeQuote();
+    flushPara(); flushTable(); closeList(); closeQuote();
     if (inCode) out.push("</code></pre>");
     return out.join("\n");
+
+    // 段落合并：Markdown 软换行不该被拆成多个 <p>。CJK 行间直接拼接，英文行间补空格。
+    function flushPara() {
+      if (!paraBuf.length) return;
+      const text = paraBuf.reduce((acc, cur) => {
+        if (!acc) return cur;
+        const a = acc[acc.length - 1];
+        const b = cur[0];
+        const cjk = (ch) => /[一-鿿　-〿＀-￯]/.test(ch);
+        return acc + (cjk(a) || cjk(b) ? "" : " ") + cur;
+      }, "");
+      out.push(`<p>${inline(text)}</p>`);
+      paraBuf.length = 0;
+    }
   }
 
   // ---------- API ----------
@@ -191,7 +206,14 @@
     ARTICLES: [], RUNS: [], TOPICS: [], TOPICS_SCOPE: "today", TREND: [],
     KEYWORDS: [], CONFIG_SOURCES: [], POLICIES: [],
     COUNTS: { readyForReview: 0, needsFactSources: 0 }, CHRONIC: [],
+    TAXONOMY: { contentTypes: {}, businessCategories: {}, topicClusters: {} },
     LOADED: false,
+
+    // 分类中文标签（kind: contentTypes | businessCategories | topicClusters）
+    taxLabel(kind, key) {
+      if (!key) return null;
+      return (FLY.TAXONOMY[kind] && FLY.TAXONOMY[kind][key]) || key;
+    },
 
     async load() {
       const b = await api("/api/ui/bootstrap");
@@ -211,6 +233,7 @@
       FLY.POLICIES = ((b.config && b.config.policies) || []).map((p) => ({ ...p, updated: fmtDT(p.updated) }));
       FLY.COUNTS = b.counts || { readyForReview: 0, needsFactSources: 0 };
       FLY.CHRONIC = b.chronicSources || [];
+      FLY.TAXONOMY = b.taxonomy || { contentTypes: {}, businessCategories: {}, topicClusters: {} };
       FLY.LOADED = true;
       return FLY;
     },
@@ -244,6 +267,7 @@
         actions: (r.actions || []).map((x) => ({ ...x, t: fmtDT(x.t) })),
         failedModelRuns: (r.failedModelRuns || []).map((x) => ({ ...x, t: fmtDT(x.t) })),
         transitions: (r.transitions || []).map((x) => ({ ...x, t: fmtDT(x.t) })),
+        sourceClassification: r.sourceClassification || null,
       };
       FLY._runCache[id] = d;
       return d;

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // engine_report.js — 生产报告写入 engine_reports 表（DB-only），CLI 打印摘要
 // 用法: npm run engine:report [-- --run-id <id>] [--since 2026-06-01]
-const my = require('./mysql_lib');
+const my = require('./lib/mysql_lib');
 
 const REQUIRED_CHANNELS = ['wechat', 'douyin', 'xiaohongshu'];
 
@@ -54,6 +54,25 @@ async function main() {
       perArticle: scored.map((s) => ({ articleId: s.id, title: s.title.slice(0, 40), seo: s.seo_score, geo: s.geo_score, overall: s.overall_score, strategy: s.strategy, recommendation: s.recommendation })),
     };
 
+    // 内容分类统计（content_type / business_category / topic_cluster）
+    const cnt = (rows) => Object.fromEntries(rows.filter((r) => r.k).map((r) => [r.k, r.c]));
+    const contentTypeCounts = cnt(await my.query('SELECT content_type k, COUNT(*) c FROM articles GROUP BY content_type ORDER BY c DESC'));
+    const businessCategoryCounts = cnt(await my.query('SELECT business_category k, COUNT(*) c FROM articles GROUP BY business_category ORDER BY c DESC'));
+    const topicClusterCounts = cnt(await my.query('SELECT topic_cluster k, COUNT(*) c FROM articles GROUP BY topic_cluster ORDER BY c DESC'));
+    // source 多但文章少的业务分类（近 7 天 source vs 全部文章）
+    const srcCatCounts = cnt(await my.query("SELECT business_category k, COUNT(*) c FROM source_items WHERE created_at >= DATE_SUB(NOW(3), INTERVAL 7 DAY) GROUP BY business_category ORDER BY c DESC"));
+    const underproducedCategories = Object.entries(srcCatCounts)
+      .filter(([k, c]) => c >= 10 && (businessCategoryCounts[k] || 0) <= 1)
+      .map(([k, c]) => ({ businessCategory: k, sourceItems7d: c, articles: businessCategoryCounts[k] || 0 }));
+    // 各业务分类积压 needs_fact_sources
+    const backlogByCategory = cnt(await my.query("SELECT business_category k, COUNT(*) c FROM articles WHERE status = 'needs_fact_sources' GROUP BY business_category"));
+    const unclassified = {
+      sourceItems: (await my.query('SELECT COUNT(*) c FROM source_items WHERE content_type IS NULL'))[0].c,
+      topicCandidates: (await my.query('SELECT COUNT(*) c FROM topic_candidates WHERE content_type IS NULL'))[0].c,
+      articles: (await my.query('SELECT COUNT(*) c FROM articles WHERE content_type IS NULL'))[0].c,
+    };
+    const taxonomySummary = { contentTypeCounts, businessCategoryCounts, topicClusterCounts, sourceItemsByCategory7d: srcCatCounts, underproducedCategories, backlogByCategory, unclassified };
+
     // trace 健康度：最近 24h 的 trace 事件量 + 最近 run 是否有 trace 缺失迹象
     const traceHealth = (await my.query("SELECT (SELECT COUNT(*) FROM workflow_steps WHERE created_at >= DATE_SUB(NOW(3), INTERVAL 1 DAY)) steps, (SELECT COUNT(*) FROM workflow_events WHERE created_at >= DATE_SUB(NOW(3), INTERVAL 1 DAY)) events, (SELECT COUNT(*) FROM workflow_events WHERE level='error' AND created_at >= DATE_SUB(NOW(3), INTERVAL 1 DAY)) errorEvents"))[0];
 
@@ -61,7 +80,8 @@ async function main() {
     if (engineRuns[0] && my.asJson(engineRuns[0].summary_json) && my.asJson(engineRuns[0].summary_json).traceFailures > 0) {
       nextActions.push(`⚠️ 最近一次 engine run 有 ${my.asJson(engineRuns[0].summary_json).traceFailures} 次 trace 写入失败，检查 workflow_* 表`);
     }
-    if (needsFactSources.length) nextActions.push(`${needsFactSources.length} 篇待补来源: npm run fix:sources -- --limit ${needsFactSources.length}`);
+    if (needsFactSources.length) nextActions.push(`${needsFactSources.length} 篇待补来源: npm run sources:fix -- --limit ${needsFactSources.length}`);
+    if (unclassified.sourceItems + unclassified.topicCandidates + unclassified.articles > 0) nextActions.push(`${unclassified.sourceItems + unclassified.topicCandidates + unclassified.articles} 条内容未分类: npm run content:classify -- --all --limit 500`);
     if (missingChannelsList.length) nextActions.push(`${missingChannelsList.length} 篇缺渠道: npm run channels:generate -- --status ready_for_review --missing-only`);
     if (readyForReview.length) nextActions.push(`${readyForReview.length} 篇待终审: npm run review:mark -- --article-id <id> --status approved_for_publish`);
     if (!nextActions.length) nextActions.push('流水线无积压，可运行 npm run engine:daily');
@@ -72,6 +92,7 @@ async function main() {
       statusCounts, recentArticles: recentArticles.map((a) => ({ ...a, created_at: String(a.created_at) })), readyForReview, needsFactSources,
       channelCoverage: { totalReadyArticles: reviewables.length, completeChannelSet, missingChannels: missingChannelsList },
       seoGeoSummary, failedModelRuns, traceHealth,
+      contentTypeCounts, businessCategoryCounts, topicClusterCounts, taxonomySummary,
       packages: packages.map((p) => ({ slug: p.slug, status: p.status, ready: !!p.ready_for_publish_package })),
       nextActions,
     };
@@ -92,6 +113,20 @@ ${readyForReview.map((a) => `- ${a.title}（质量 ${a.quality_score} / SEO ${a.
 
 平均 SEO ${seoGeoSummary.avgSeoScore ?? '-'} / GEO ${seoGeoSummary.avgGeoScore ?? '-'} / 综合 ${seoGeoSummary.avgOverallScore ?? '-'}（${seoGeoSummary.scoredArticles} 篇已评分）
 
+## 内容分类
+
+**内容类型**: ${Object.entries(contentTypeCounts).map(([k, c]) => `${k} ${c}`).join(' · ') || '（全部未分类）'}
+
+**业务分类**: ${Object.entries(businessCategoryCounts).map(([k, c]) => `${k} ${c}`).join(' · ') || '（全部未分类）'}
+
+**主题簇**: ${Object.entries(topicClusterCounts).map(([k, c]) => `${k} ${c}`).join(' · ') || '（无）'}
+
+${underproducedCategories.length ? `**source 多但文章少**：${underproducedCategories.map((u) => `${u.businessCategory}（近 7 天 source ${u.sourceItems7d} 条 / 文章 ${u.articles} 篇）`).join('；')}` : '**source 多但文章少**：无明显缺口'}
+
+${Object.keys(backlogByCategory).length ? `**待补来源积压（按业务分类）**：${Object.entries(backlogByCategory).map(([k, c]) => `${k} ${c} 篇`).join('；')}` : ''}
+
+${unclassified.sourceItems + unclassified.topicCandidates + unclassified.articles > 0 ? `> ⚠️ 未分类：source_items ${unclassified.sourceItems} / topic_candidates ${unclassified.topicCandidates} / articles ${unclassified.articles}，运行 \`npm run content:classify -- --all\`` : ''}
+
 ## 渠道覆盖
 
 ${reviewables.length} 篇可终审，${completeChannelSet} 篇渠道齐全
@@ -108,7 +143,7 @@ ${nextActions.map((a, i) => `${i + 1}. ${a}`).join('\n')}
     const id = my.makeId('report');
     await my.insert('engine_reports', { id, engine_run_id: args.runId || null, report_json: report, report_markdown: md, created_at: my.now() });
 
-    console.log(JSON.stringify({ ok: true, reportId: id, storedIn: 'engine_reports (MySQL)', statusCounts, readyForReview: readyForReview.length, needsFactSources: needsFactSources.length, channelCoverage: report.channelCoverage, seoGeoSummary: { avgSeo: seoGeoSummary.avgSeoScore, avgGeo: seoGeoSummary.avgGeoScore, scored: seoGeoSummary.scoredArticles }, nextActions }, null, 2));
+    console.log(JSON.stringify({ ok: true, reportId: id, storedIn: 'engine_reports (MySQL)', statusCounts, contentTypeCounts, businessCategoryCounts, topicClusterCounts, readyForReview: readyForReview.length, needsFactSources: needsFactSources.length, channelCoverage: report.channelCoverage, seoGeoSummary: { avgSeo: seoGeoSummary.avgSeoScore, avgGeo: seoGeoSummary.avgGeoScore, scored: seoGeoSummary.scoredArticles }, nextActions }, null, 2));
   } catch (err) {
     console.log(JSON.stringify({ ok: false, error: err.message }, null, 2));
     process.exitCode = 1;

@@ -4,7 +4,7 @@
 
 ```bash
 npm run engine:daily          # 每日 1 篇
-npm run fix:sources -- --limit 5
+npm run sources:fix -- --limit 5
 npm run engine:report
 npm run viewer                # 本地只读 Trace Console（http://127.0.0.1:5177）
 ```
@@ -16,7 +16,7 @@ npm run viewer                # 本地只读 Trace Console（http://127.0.0.1:51
 | 采集失败 | `source_collection_logs WHERE status='failed'`（看 http_status / error_message；403=反爬，timeout=网络/代理）；Viewer → Sources tab 筛 failed |
 | OpenClaw 失败 | `model_runs WHERE status='failed'`（error_message 含 `network connection error` = 代理/Provider 断；`无法解析 JSON` = 模型输出不合规，看 raw_response）；`workflow_events WHERE event_type='openclaw_call_failed'` |
 | source fix 未通过 | `fact_checks` 最新一条的 must_fix_json；`source_resolutions WHERE resolved_status='needs_manual_review'`（这些需要人工资料，如 Seller Central 登录态内容、Flyfus 内部佐证） |
-| needs_fact_sources 堆积 | `articles WHERE status='needs_fact_sources'` → 逐篇 `npm run fix:sources -- --article-id <id>`；连续 2 轮不收敛就看 mustFix 是否为人工项 |
+| needs_fact_sources 堆积 | `articles WHERE status='needs_fact_sources'` → 逐篇 `npm run sources:fix -- --article-id <id>`；连续 2 轮不收敛就看 mustFix 是否为人工项 |
 | channel 缺失 | Viewer → Article Detail 渠道区；`npm run channels:generate -- --status ready_for_review --missing-only` |
 | export package 不完整 | `publish_packages.metadata_json.channelStatus.missing`；`ready_for_publish_package=0` 的看 metadata 的 suggestedCommand |
 | trace 写入失败 | engine run `summary_json.traceFailures` > 0；engine_report nextActions 会提示 |

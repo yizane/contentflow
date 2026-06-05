@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyfus-content-agent/content_classification.schema.json",
+  "title": "Flyfus Content Classification Output",
+  "description": "内容分类器输出契约。contentType / businessCategory 必须取自 config/content_taxonomy.yaml 的枚举 key；topicCluster 取枚举 key 或空字符串。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contentType", "businessCategory", "topicCluster", "confidence", "reason"],
+  "properties": {
+    "index": {
+      "type": "number",
+      "description": "批量分类时的条目编号（单条分类可省略）"
+    },
+    "contentType": {
+      "type": "string",
+      "enum": [
+        "news_flash", "policy_update", "operation_guide", "product_update", "market_report",
+        "trend_analysis", "case_study", "tool_review", "risk_warning", "qa_discussion"
+      ]
+    },
+    "businessCategory": {
+      "type": "string",
+      "enum": [
+        "amazon_ai_shopping", "listing_geo", "product_research", "ppc_acos", "keyword_intent",
+        "review_qa", "account_compliance", "fba_inventory", "brand_growth", "marketplace_policy", "ai_tools"
+      ]
+    },
+    "topicCluster": {
+      "type": "string",
+      "enum": [
+        "alexa_for_shopping_listing", "listing_semantic_structure", "rufus_question_data",
+        "ppc_intent_keywords", "product_opportunity_mining", "compliance_risk_warning", ""
+      ]
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "reason": { "type": "string", "minLength": 4 }
+  }
+}

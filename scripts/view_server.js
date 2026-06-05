@@ -6,10 +6,10 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const my = require('./mysql_lib');
-const rc = require('./run_control_lib');
-const ui = require('./ui_api_lib');
-const logger = require('./logger_lib');
+const my = require('./lib/mysql_lib');
+const rc = require('./lib/run_control_lib');
+const ui = require('./lib/ui_api_lib');
+const logger = require('./lib/logger_lib');
 
 const ROOT = my.ROOT;
 const PORT = parseInt(process.env.PORT || '5177', 10);
@@ -90,9 +90,14 @@ async function engineRunEvents(id, q) {
 
 async function listArticles(q) {
   const limit = Math.min(100, parseInt(q.get('limit') || '30', 10));
-  let sql = 'SELECT id, title, slug, status, quality_score, seo_score, geo_score, fact_publish_readiness, primary_keyword, created_at, updated_at FROM articles';
+  let sql = 'SELECT id, title, slug, status, quality_score, seo_score, geo_score, fact_publish_readiness, primary_keyword, content_type, business_category, topic_cluster, created_at, updated_at FROM articles';
+  const where = [];
   const params = [];
-  if (q.get('status')) { sql += ' WHERE status = ?'; params.push(q.get('status')); }
+  if (q.get('status')) { where.push('status = ?'); params.push(q.get('status')); }
+  if (q.get('content_type')) { where.push('content_type = ?'); params.push(q.get('content_type')); }
+  if (q.get('business_category')) { where.push('business_category = ?'); params.push(q.get('business_category')); }
+  if (q.get('topic_cluster')) { where.push('topic_cluster = ?'); params.push(q.get('topic_cluster')); }
+  if (where.length) sql += ' WHERE ' + where.join(' AND ');
   sql += ` ORDER BY created_at DESC LIMIT ${limit}`;
   return (await my.query(sql, params)).map((r) => ({ ...r, created_at: dt(r.created_at), updated_at: dt(r.updated_at) }));
 }

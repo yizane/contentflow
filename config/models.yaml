@@ -8,33 +8,69 @@ generation_strategies:
     - geo_first
 
 # 当前单模型；多模型并行生成为 P2 TODO（架构已预留：每个 task_type 一个数组，enabled 控制启用）。
-# 注意：openclaw provider 当前仅 flyposter-ai；model 为空时使用 OpenClaw 默认模型。
+
+# ---- 执行器（providers）----
+# 任务节点（task_type）可路由到不同执行器：本地 CLI 或远程 API。
+# 当前生产路径 = openclaw_cli；其余为预留能力（enabled: false），配置好即可启用：
+#   codex_cli / claude_cli：本地 CLI（实验性，未在生产验证）
+#   openai_api：任何 OpenAI 兼容 /chat/completions 服务（OpenAI/DeepSeek/vLLM/Ollama…）
+#   openclaw_gateway：远程 OpenClaw 网关（协议待定，仅占位）
+providers:
+  openclaw_cli:
+    type: cli
+    command: openclaw
+    enabled: true
+  codex_cli:
+    type: cli
+    command: codex
+    enabled: false
+  claude_cli:
+    type: cli
+    command: claude
+    enabled: false
+  openai_api:
+    type: openai_http
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+    enabled: false
+  openclaw_gateway:
+    type: gateway
+    base_url: ""
+    api_key_env: OPENCLAW_GATEWAY_TOKEN
+    enabled: false
 
 default:
-  provider: openclaw
+  provider: openclaw_cli
   model: flyposter-ai/gpt-5.5
   thinking: off
 
 article_generation:
   - name: gpt-5.5
-    provider: openclaw
+    provider: openclaw_cli
     model: flyposter-ai/gpt-5.5
     enabled: true
 
 topic_generation:
   - name: gpt-5.5
-    provider: openclaw
+    provider: openclaw_cli
     model: flyposter-ai/gpt-5.5
     enabled: true
 
 fact_check:
   - name: gpt-5.5
-    provider: openclaw
+    provider: openclaw_cli
     model: flyposter-ai/gpt-5.5
     enabled: true
 
 channel_repurpose:
   - name: gpt-5.5
-    provider: openclaw
+    provider: openclaw_cli
+    model: flyposter-ai/gpt-5.5
+    enabled: true
+
+# 内容分类（content_type / business_category / topic_cluster）：轻量任务，批量分类
+content_classification:
+  - name: gpt-5.5
+    provider: openclaw_cli
     model: flyposter-ai/gpt-5.5
     enabled: true

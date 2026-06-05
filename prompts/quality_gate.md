@@ -22,7 +22,7 @@
 | informationGain 信息增量 | 20 | 相比 SERP 竞品是否有新视角/新数据/新框架；serpGap 列出的缺口是否被填上 |
 | actionability 可执行性 | 15 | 实操步骤是否具体可验证；有无清单/表格；读完能否立刻动手 |
 | seo SEO 基础 | 15 | H1/H2 关键词布局、metaTitle/metaDescription 规范、slug、内链建议 |
-| geo GEO 结构 | 15 | 答案前置、TL;DR、FAQ、Schema JSON-LD、日期声明、来源可溯 |
+| geo GEO 结构 | 15 | 答案前置、要点速览（TL;DR）、FAQ、Schema JSON-LD、日期声明、来源可溯 |
 | facts 事实可靠性 | 10 | 有无编造痕迹；政策/费率/算法表述是否都有来源；量化表述是否有支撑 |
 | brandFit 品牌转化自然度 | 5 | Flyfus 提及是否自然融入解决方案；CTA 是否克制 |
 

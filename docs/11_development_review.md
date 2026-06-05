@@ -27,3 +27,11 @@
 - engine_daily 四模式 + --plan-only；engine_batch 接 --run-id 等控制参数；retry 复用当天未完成 job
 - Viewer：Run Control 面板（按钮按 availableActions 启停，rebuild 需 confirm，force 不做 UI 入口）+ runs 列表 badges + run detail 显示 run_actions/transitions
 - Generate Report 按钮 v1 仅提示 CLI 命令（保持 Viewer 写操作面最小）；后续可加 POST /api/run-control/report
+
+## Phase 12 — Content Taxonomy & AI Classification
+
+- 新增 `config/content_taxonomy.yaml`（10 content_types / 11 business_categories / 6 topic_clusters）+ migration 006。
+- `scripts/taxonomy_lib.js`：taxonomy 解析、枚举校验/纠偏（cluster 与 category 不一致时置空）、规则分类器。
+- `scripts/classify_lib.js` + `scripts/content_classify.js`：规则 confidence ≥ 0.85 直接采用，否则批量调 OpenClaw（content_classifier prompt + schema），结果写实体表 + content_classifications + workflow_events + model_runs。
+- 主流程接入：采集后自动分类（AI 限额）、选题 AI 直出分类（schema 增 contentType/businessCategory/topicCluster，缺失回退规则不阻断）、job→文章→版本继承、发布包 metadata、engine_report 分类统计、db:list/db:show 筛选展示、Viewer 筛选与详情展示。
+- 已知边界：批量 AI 分类单批 ≤ 30 条；规则无信号且 AI 不可用时该条保持未分类（engine_report 会提示回填命令）。

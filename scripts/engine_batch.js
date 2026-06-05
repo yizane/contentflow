@@ -3,9 +3,9 @@
 // 用法: npm run engine:batch -- --limit 1 --min-score 80 [--strategy geo_first] [--skip-seo-geo-score] [--force] [--dry-run]
 const path = require('path');
 const { execFileSync } = require('child_process');
-const my = require('./mysql_lib');
-const { loadPolicy } = require('./production_policy_lib');
-const logger = require('./logger_lib');
+const my = require('./lib/mysql_lib');
+const { loadPolicy } = require('./lib/production_policy_lib');
+const logger = require('./lib/logger_lib');
 
 const ROOT = my.ROOT;
 
@@ -43,7 +43,7 @@ let stepOrder = 0;
 
 // 带 workflow_steps trace 的步骤执行：创建 step → 子进程（带 WORKFLOW_STEP_ID）→ 完结 step
 async function runStep(name, script, args = [], engineRunId, { skipped = false } = {}) {
-  const trace = require('./trace_lib');
+  const trace = require('./lib/trace_lib');
   stepOrder++;
   const stepId = await trace.createWorkflowStep({ engineRunId, stepKey: name.replace(/[:]/g, '_'), stepName: name, stepOrder, inputSummary: { args } });
   if (skipped) {
@@ -86,7 +86,7 @@ async function runStep(name, script, args = [], engineRunId, { skipped = false }
 
 async function main() {
   const args = parseArgs(process.argv);
-  await require('./config_lib').ensureInit();
+  await require('./lib/config_lib').ensureInit();
   const policy = loadPolicy();
   const maxLimit = policy.batch_limits.max_limit_without_force;
   if (args.limit > maxLimit && !args.force) {
@@ -100,9 +100,10 @@ async function main() {
   if (args.dryRun) {
     console.log(JSON.stringify({
       ok: true, dryRun: true,
-      plan: { limit: args.limit, minScore: args.minScore, strategy: args.strategy, skipSeoGeoScore: args.skipSeoGeoScore, steps: ['collect:sources', 'run:topic-generation', `jobs:create-articles --limit ${args.limit} --strategy ${args.strategy}`, 'jobs:run-articles', 'jobs:run-fact-check', 'channels:generate', ...(args.skipSeoGeoScore ? [] : ['run:seo-geo-score --status ready_for_review']), 'db:list'] },
+      plan: { limit: args.limit, minScore: args.minScore, strategy: args.strategy, skipSeoGeoScore: args.skipSeoGeoScore, steps: ['sources:collect', 'topics:generate', `jobs:create --limit ${args.limit} --strategy ${args.strategy}`, 'jobs:run', 'factcheck:run', 'channels:generate', ...(args.skipSeoGeoScore ? [] : ['score:seo-geo --status ready_for_review']), 'db:list'] },
       message: 'dry-run：参数合法，未执行',
     }, null, 2));
+    await my.closePool(); // 不关池进程不会退出
     return;
   }
 
@@ -118,18 +119,18 @@ async function main() {
     daily_key: args.dailyKey, run_scope: args.runScope, run_mode: args.runMode,
     is_active: args.isActive, triggered_by: args.triggeredBy, trigger_source: args.triggerSource,
   });
-  const trace = require('./trace_lib');
+  const trace = require('./lib/trace_lib');
   await trace.logWorkflowEvent({ engineRunId, eventType: 'engine_started', level: 'info', message: `engine ${args.runType} 启动（limit ${args.limit}, strategy ${args.strategy}）`, data: { limit: args.limit, minScore: args.minScore, strategy: args.strategy } });
 
-  const collect = await runStep('collect:sources', 'collect_sources.js', [], engineRunId);
+  const collect = await runStep('sources:collect', 'pipeline/sources_collect.js', [], engineRunId);
   if (collect.ok && collect.result) {
     counts.topicsCollected = collect.result.summary ? collect.result.summary.total : 0;
     warnings.push(...(collect.result.warnings || []).slice(0, 8));
-  } else errors.push(`collect:sources: ${collect.error}`);
+  } else errors.push(`sources:collect: ${collect.error}`);
 
-  const topicGen = await runStep('run:topic-generation', 'run_topic_generation.js', [], engineRunId);
+  const topicGen = await runStep('topics:generate', 'pipeline/topics_generate.js', [], engineRunId);
   if (topicGen.ok && topicGen.result) dedupeRejected = topicGen.result.dedupeRejected || 0;
-  else if (!topicGen.ok) errors.push(`run:topic-generation: ${topicGen.error}`);
+  else if (!topicGen.ok) errors.push(`topics:generate: ${topicGen.error}`);
 
   // retry 模式：当天已有 pending/failed job 时直接复用，不再新建（避免重复创建成功文章）
   let reusableJobs = 0;
@@ -139,53 +140,53 @@ async function main() {
   let createJobs;
   if (args.retry && reusableJobs > 0) {
     warnings.push(`retry：复用当天 ${reusableJobs} 个未完成 job，跳过新建`);
-    createJobs = await runStep('jobs:create-articles', '', [], engineRunId, { skipped: true });
+    createJobs = await runStep('jobs:create', '', [], engineRunId, { skipped: true });
     counts.topicsSelected = reusableJobs;
   } else {
-    createJobs = await runStep('jobs:create-articles', 'create_article_jobs.js', ['--limit', String(args.limit), '--min-score', String(args.minScore), '--strategy', args.strategy], engineRunId);
+    createJobs = await runStep('jobs:create', 'pipeline/jobs_create.js', ['--limit', String(args.limit), '--min-score', String(args.minScore), '--strategy', args.strategy], engineRunId);
     if (createJobs.ok && createJobs.result) counts.topicsSelected = createJobs.result.jobCount || 0;
-    else errors.push(`jobs:create-articles: ${createJobs.error}`);
+    else errors.push(`jobs:create: ${createJobs.error}`);
   }
 
   if (counts.topicsSelected > 0) {
-    const articleRun = await runStep('jobs:run-articles', 'run_article_jobs.js', [], engineRunId);
+    const articleRun = await runStep('jobs:run', 'pipeline/jobs_run.js', [], engineRunId);
     if (articleRun.result) {
       counts.articlesGenerated = (articleRun.result.succeeded || 0) + (articleRun.result.failed || 0);
       counts.articlesValidated = articleRun.result.succeeded || 0;
       (articleRun.result.results || []).filter((r) => !r.ok).forEach((r) => errors.push(`job ${r.jobId}: ${(r.failures || []).join('; ').slice(0, 200)}`));
-    } else if (!articleRun.ok) errors.push(`jobs:run-articles: ${articleRun.error}`);
+    } else if (!articleRun.ok) errors.push(`jobs:run: ${articleRun.error}`);
   } else {
     warnings.push('没有选出主题，跳过文章生成');
-    await runStep('jobs:run-articles', '', [], engineRunId, { skipped: true });
+    await runStep('jobs:run', '', [], engineRunId, { skipped: true });
   }
 
   if (counts.articlesValidated > 0) {
-    const fc = await runStep('jobs:run-fact-check', 'run_fact_check_jobs.js', [], engineRunId);
+    const fc = await runStep('factcheck:run', 'pipeline/factcheck_run.js', [], engineRunId);
     if (fc.result) {
       counts.factChecksCompleted = fc.result.succeeded || 0;
       (fc.result.results || []).filter((r) => !r.ok).forEach((r) => errors.push(`fact check ${r.articleId}: ${r.error}`));
-    } else if (!fc.ok) errors.push(`jobs:run-fact-check: ${fc.error}`);
+    } else if (!fc.ok) errors.push(`factcheck:run: ${fc.error}`);
 
-    const ch = await runStep('channels:generate', 'run_channel_repurpose.js', [], engineRunId);
+    const ch = await runStep('channels:generate', 'pipeline/channels_generate.js', [], engineRunId);
     if (ch.result) {
       counts.channelOutputsGenerated = ch.result.channelOutputsGenerated || 0;
       if (!ch.ok) errors.push(`channels:generate: ${ch.error || '部分失败'}`);
     } else if (!ch.ok) errors.push(`channels:generate: ${ch.error}`);
   } else {
     warnings.push('没有通过校验的文章，跳过核查与渠道');
-    await runStep('jobs:run-fact-check', '', [], engineRunId, { skipped: true });
+    await runStep('factcheck:run', '', [], engineRunId, { skipped: true });
     await runStep('channels:generate', '', [], engineRunId, { skipped: true });
   }
 
   if (!args.skipSeoGeoScore) {
-    const score = await runStep('run:seo-geo-score', 'run_seo_geo_score.js', ['--status', 'ready_for_review', '--strategy', args.strategy], engineRunId);
+    const score = await runStep('score:seo-geo', 'pipeline/score_seo_geo.js', ['--status', 'ready_for_review', '--strategy', args.strategy], engineRunId);
     if (score.result) {
       seoGeoScored = score.result.scored || 0;
-      if (!score.ok) errors.push(`run:seo-geo-score: ${score.error || '部分失败'}`);
-    } else if (!score.ok) errors.push(`run:seo-geo-score: ${score.error}`);
+      if (!score.ok) errors.push(`score:seo-geo: ${score.error || '部分失败'}`);
+    } else if (!score.ok) errors.push(`score:seo-geo: ${score.error}`);
   } else warnings.push('已跳过双评分');
 
-  await runStep('db:list', 'db_list_articles.js', ['--limit', '10'], engineRunId);
+  await runStep('db:list', 'tools/db_list.js', ['--limit', '10'], engineRunId);
 
   const nextActions = [];
   if (counts.factChecksCompleted > 0) nextActions.push('npm run db:list -- --status needs_fact_sources 查看待补来源');

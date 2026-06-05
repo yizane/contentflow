@@ -1,0 +1,119 @@
+# 内容分类体系 — Content Taxonomy
+# 三层分类：content_type（内容形态）/ business_category（业务主题）/ topic_cluster（主题簇）
+# 注意：source_group 表示「来源分组」，与本文件的内容分类是两套体系，不可混用。
+version: 1
+content_types:
+  news_flash:
+    label_zh: "新闻快讯"
+    description: "短时效行业动态、快讯、新闻线索。"
+    freshness: "high"
+    article_strategy: "trend_or_news_explainer"
+  policy_update:
+    label_zh: "平台政策"
+    description: "Amazon、Google、平台规则、费率、合规要求变化。"
+    freshness: "high"
+    article_strategy: "policy_explainer"
+  operation_guide:
+    label_zh: "运营干货"
+    description: "可执行运营方法、SOP、教程、检查清单。"
+    freshness: "medium"
+    article_strategy: "how_to_guide"
+  product_update:
+    label_zh: "产品动态"
+    description: "Amazon、工具、平台功能上线、改名、整合、产品更新。"
+    freshness: "high"
+    article_strategy: "product_update_analysis"
+  market_report:
+    label_zh: "行业报告"
+    description: "市场趋势、品类数据、调研报告、行业洞察。"
+    freshness: "medium"
+    article_strategy: "report_analysis"
+  trend_analysis:
+    label_zh: "趋势解读"
+    description: "对行业变化、AI 搜索变化、平台趋势进行解释。"
+    freshness: "medium"
+    article_strategy: "trend_analysis"
+  case_study:
+    label_zh: "案例分析"
+    description: "卖家案例、品牌案例、运营复盘、失败/成功案例。"
+    freshness: "medium"
+    article_strategy: "case_analysis"
+  tool_review:
+    label_zh: "工具测评"
+    description: "工具对比、教程、测评、替代方案分析。"
+    freshness: "low"
+    article_strategy: "tool_review"
+  risk_warning:
+    label_zh: "风险警示"
+    description: "违规、封号、黑科技风险、合规避坑。"
+    freshness: "high"
+    article_strategy: "risk_warning"
+  qa_discussion:
+    label_zh: "问答讨论"
+    description: "社区讨论、论坛问题、Reddit/Seller Forum 卖家疑问。"
+    freshness: "medium"
+    article_strategy: "qa_explainer"
+business_categories:
+  amazon_ai_shopping:
+    label_zh: "Amazon AI Shopping"
+    description: "Alexa for Shopping、Rufus、AI Shopping、商品页 AI Overviews。"
+    priority: "P0"
+  listing_geo:
+    label_zh: "Listing GEO 优化"
+    description: "Listing 语义结构、场景标签、FAQ、AI 引用、商品页可抽取性。"
+    priority: "P0"
+  product_research:
+    label_zh: "选品与产品开发"
+    description: "蓝海选品、产品开发、买家未满足需求、类目机会。"
+    priority: "P0"
+  ppc_acos:
+    label_zh: "广告 / PPC / ACoS"
+    description: "广告投放、ACoS 优化、CPC、广告结构、关键词投放。"
+    priority: "P0"
+  keyword_intent:
+    label_zh: "关键词 / 意图词"
+    description: "关键词调研、长尾词、场景词、买家意图词。"
+    priority: "P0"
+  review_qa:
+    label_zh: "Review / Q&A / 买家问题"
+    description: "评论、问答、买家疑虑、退货痛点、产品反馈。"
+    priority: "P1"
+  account_compliance:
+    label_zh: "账号健康 / 合规"
+    description: "封号、申诉、账号健康、政策风险、违规避坑。"
+    priority: "P1"
+  fba_inventory:
+    label_zh: "FBA / 物流 / 库存"
+    description: "FBA、备货、库存、物流、仓储费。"
+    priority: "P2"
+  brand_growth:
+    label_zh: "品牌 / 站外 / 增长"
+    description: "品牌备案、A+、站外、红人、Deal、旺季增长。"
+    priority: "P2"
+  marketplace_policy:
+    label_zh: "平台政策 / 行业动态"
+    description: "Amazon 平台政策、市场动态、卖家生态变化。"
+    priority: "P1"
+  ai_tools:
+    label_zh: "AI 工具 / 运营工具"
+    description: "AI 工具、选品工具、广告工具、ERP、工具教程。"
+    priority: "P1"
+topic_clusters:
+  alexa_for_shopping_listing:
+    label_zh: "Alexa for Shopping 与 Listing 优化"
+    business_category: "amazon_ai_shopping"
+  listing_semantic_structure:
+    label_zh: "Listing 语义架构"
+    business_category: "listing_geo"
+  rufus_question_data:
+    label_zh: "Rufus 问答数据与买家意图"
+    business_category: "amazon_ai_shopping"
+  ppc_intent_keywords:
+    label_zh: "PPC 与高转化意图词"
+    business_category: "ppc_acos"
+  product_opportunity_mining:
+    label_zh: "买家未满足需求与选品机会"
+    business_category: "product_research"
+  compliance_risk_warning:
+    label_zh: "合规风险与账号安全"
+    business_category: "account_compliance"

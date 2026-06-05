@@ -314,20 +314,32 @@ select.inp { -webkit-appearance: none; appearance: none; background-image: url("
 a.link { color: var(--brand-600); font-weight: 700; text-decoration: none; }
 a.link:hover { text-decoration: underline; }
 
-/* prose for article body */
-.prose { color: var(--ink); font-size: 15px; line-height: 1.78; }
-.prose h1 { font-size: 25px; font-weight: 800; letter-spacing: -.02em; margin: 0 0 6px; }
-.prose h2 { font-size: 19px; font-weight: 800; margin: 30px 0 10px; letter-spacing: -.01em; }
-.prose h3 { font-size: 16px; font-weight: 700; margin: 22px 0 8px; }
-.prose p { margin: 0 0 14px; }
-.prose ul, .prose ol { margin: 0 0 14px; padding-left: 22px; }
-.prose li { margin: 5px 0; }
+/* prose for article body — 阅读优先：限宽 + 段落节奏 + 标题层级 */
+.prose {
+  color: var(--ink); font-size: 15px; line-height: 1.9;
+  max-width: 720px; margin: 0 auto;
+  letter-spacing: .01em;
+}
+/* 正文首个 H1 与页头标题重复，降级展示 */
+.prose h1 { font-size: 21px; font-weight: 800; letter-spacing: -.01em; margin: 0 0 18px; padding-bottom: 14px; border-bottom: 1px solid var(--line-soft); color: var(--ink-2); }
+.prose h2 { font-size: 18px; font-weight: 800; margin: 34px 0 12px; letter-spacing: -.01em; padding-left: 11px; border-left: 3px solid var(--brand-500); line-height: 1.4; }
+.prose h3 { font-size: 15.5px; font-weight: 700; margin: 24px 0 9px; }
+.prose h4 { font-size: 14.5px; font-weight: 700; margin: 18px 0 8px; color: var(--ink-2); }
+.prose p { margin: 0 0 16px; text-align: justify; }
+.prose ul, .prose ol { margin: 0 0 16px; padding-left: 24px; }
+.prose li { margin: 7px 0; line-height: 1.8; }
+.prose li::marker { color: var(--brand-500); }
 .prose strong { font-weight: 700; }
+.prose code { background: var(--mut-bg); padding: 1px 6px; border-radius: 5px; font-family: var(--mono); font-size: 13px; }
+.prose pre { background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; overflow-x: auto; margin: 0 0 16px; }
+.prose pre code { background: none; padding: 0; font-size: 12.5px; line-height: 1.6; }
 .prose a { color: var(--brand-600); text-decoration: underline; text-underline-offset: 2px; }
-.prose table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14px; }
-.prose th, .prose td { border: 1px solid var(--line); padding: 9px 12px; text-align: left; }
-.prose th { background: var(--surface-2); font-weight: 700; }
-.prose blockquote { border-left: 3px solid var(--brand-200); margin: 14px 0; padding: 4px 16px; color: var(--ink-2); background: var(--brand-50); border-radius: 0 8px 8px 0; }
+.prose hr { border: 0; height: 1px; background: var(--line-soft); margin: 26px 0; }
+.prose table { width: 100%; border-collapse: collapse; margin: 16px 0 20px; font-size: 13.5px; }
+.prose th, .prose td { border: 1px solid var(--line); padding: 9px 12px; text-align: left; line-height: 1.6; }
+.prose th { background: var(--surface-2); font-weight: 700; white-space: nowrap; }
+.prose tr:nth-child(even) td { background: var(--surface-2); }
+.prose blockquote { border-left: 3px solid var(--brand-200); margin: 16px 0; padding: 10px 16px; color: var(--ink-2); background: var(--brand-50); border-radius: 0 8px 8px 0; line-height: 1.8; }
 
 /* fill-mode 用 backwards：动画结束后不残留 transform，否则页面内 position:fixed 的弹窗会被劫持包含块 */
 .fade-in { animation: fadeUp .26s ease backwards; }
