@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// view_server.js — 本地只读 Viewer（调试工具，非正式 Web 项目）
-// 只读 MySQL；不暴露 .env/密码/RDS 地址；默认不返回完整 prompt/raw_response（仅摘要）。
+// view_server.js — ContentFlow 监控台服务（webpage/ 前端 + 只读 API + 受控运行/终审操作）
+// 只读 MySQL 为主；不暴露 .env/密码/RDS 地址；默认不返回完整 prompt/raw_response（仅摘要）。
 // 用法: npm run viewer   或   PORT=5178 node scripts/view_server.js
 const http = require('http');
 const fs = require('fs');
@@ -8,11 +8,12 @@ const path = require('path');
 const { spawn } = require('child_process');
 const my = require('./mysql_lib');
 const rc = require('./run_control_lib');
+const ui = require('./ui_api_lib');
 const logger = require('./logger_lib');
 
 const ROOT = my.ROOT;
 const PORT = parseInt(process.env.PORT || '5177', 10);
-const VIEWER_DIR = path.join(ROOT, 'viewer');
+const VIEWER_DIR = path.join(ROOT, 'webpage');
 
 function json(res, code, data) {
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -224,6 +225,32 @@ const server = http.createServer(async (req, res) => {
         dailyKey: rc.getDailyKey(),
       });
     }
+    let m;
+    // ---- ContentFlow 监控台聚合 API（webpage/ 前端专用）----
+    if (p === '/api/ui/bootstrap') return json(res, 200, await ui.uiBootstrap());
+    if ((m = p.match(/^\/api\/ui\/article\/([\w-]+)$/))) {
+      const d = await ui.uiArticle(m[1]);
+      return d ? json(res, 200, { ok: true, article: d }) : json(res, 404, { ok: false, error: 'article not found' });
+    }
+    if ((m = p.match(/^\/api\/ui\/run\/([\w.-]+)$/))) {
+      const d = await ui.uiRun(decodeURIComponent(m[1]));
+      return d ? json(res, 200, { ok: true, ...d }) : json(res, 404, { ok: false, error: 'run not found' });
+    }
+    if ((m = p.match(/^\/api\/articles\/([\w-]+)\/review$/)) && req.method === 'POST') {
+      const body = await readBody(req);
+      const r = await ui.reviewArticle({ id: m[1], status: body.status, note: body.note, actor: body.actor || 'web' });
+      return json(res, r.code, r.data);
+    }
+    if (p === '/api/ui/config/doc') {
+      const d = await ui.configDoc(q.get('key') || '');
+      return d ? json(res, 200, { ok: true, doc: d }) : json(res, 404, { ok: false, error: 'config doc not found' });
+    }
+    if ((m = p.match(/^\/api\/config\/(keywords|sources)\/([\w-]+)\/toggle$/)) && req.method === 'POST') {
+      const body = await readBody(req);
+      const r = await ui.toggleConfig(m[1] === 'keywords' ? 'config_keywords' : 'config_sources', m[2], !!body.enabled);
+      return json(res, r.code, r.data);
+    }
+
     if (p === '/api/run-control/today') return json(res, 200, await runControlToday());
     if (p === '/api/run-control/start' && req.method === 'POST') {
       const body = await readBody(req);
@@ -239,7 +266,6 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, keywordsEnabled: kw, sourcesEnabled: src, docs: docs.map((d) => ({ ...d, updated_at: dt(d.updated_at) })) });
     }
     if (p === '/api/engine-runs') return json(res, 200, { ok: true, runs: await listEngineRuns(q) });
-    let m;
     if ((m = p.match(/^\/api\/engine-runs\/([\w-]+)\/sources$/))) return json(res, 200, { ok: true, sources: await engineRunSources(m[1], q) });
     if ((m = p.match(/^\/api\/engine-runs\/([\w-]+)\/events$/))) return json(res, 200, { ok: true, events: await engineRunEvents(m[1], q) });
     if ((m = p.match(/^\/api\/engine-runs\/([\w-]+)$/))) {
@@ -263,8 +289,9 @@ const server = http.createServer(async (req, res) => {
     const abs = path.join(VIEWER_DIR, file);
     if (abs.startsWith(VIEWER_DIR) && fs.existsSync(abs) && fs.statSync(abs).isFile()) {
       const ext = path.extname(abs);
-      const mime = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css' }[ext] || 'text/plain';
-      res.writeHead(200, { 'Content-Type': `${mime}; charset=utf-8` });
+      const mime = { '.html': 'text/html', '.js': 'application/javascript', '.jsx': 'application/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.png': 'image/png' }[ext] || 'text/plain';
+      const binary = ['.ico', '.png'].includes(ext);
+      res.writeHead(200, { 'Content-Type': binary ? mime : `${mime}; charset=utf-8` });
       return res.end(fs.readFileSync(abs));
     }
     json(res, 404, { ok: false, error: 'not found' });
