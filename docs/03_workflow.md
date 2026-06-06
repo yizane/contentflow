@@ -92,6 +92,6 @@ sellerPainValue 20 / actionability 20 / informationGain 20 / businessFit 15 / no
 
 评分维度：sellerPainFit 20 / actionability 20 / informationGain 20 / originality 10 / clarity 10 / evidenceUse 10 / businessUsefulness 10。类型特判：趋势类必须写卖家操作影响；干货类必须有步骤/清单；快讯必须有卖家影响+下一步。
 
-**视觉规划（visualPlan）**：文章生成/修订必须输出 ≥2 个视觉规划（id/placement/visualType/title/purpose/description/caption/altText/imagePrompt/required），正文插 `> [配图建议 visual_N：…]` 占位。系统只存规划不生成图片、不存二进制；操作指南配 process_flow/checklist_card，趋势配 comparison_chart/diagram。Viewer 详情页「视觉规划」Tab 可逐条查看并复制生图提示。
+**视觉规划**：文章生成/修订必须输出 ≥2 个视觉规划，包含位置、类型、标题、用途、说明、图注、替代文本、生图提示和是否必需；正文插 `> [配图建议 visual_N：…]` 占位。系统只存规划不生成图片、不存二进制；操作指南配流程图或清单卡，趋势解读配对比图或关系图。Viewer 详情页「视觉规划」Tab 可逐条查看并复制生图提示。
 
 命令：`npm run score:article-quality -- --status ready_for_review | --article-id <id> [--force]`

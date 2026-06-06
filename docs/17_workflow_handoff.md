@@ -13,7 +13,7 @@
 | 12（重构） | scripts 三层目录 + providers | pipeline/tools/lib、域_动作命名、模型执行器抽象（openclaw_cli 生产 + 4 预留） |
 | 12B | Topic Portfolio Balancer | content_portfolio.yaml、selection_score、deferred 语义、关键词库 50→114、migration 008 |
 | 12D | 选题压力测试 + 价值评分 | content_value_score（6 维）、topic:audition 模拟器、migration 009 |
-| 13 | 文章质量主评分 + 视觉规划 | article_quality_score（7 维，>=80 门禁）、visualPlan、migration 010 |
+| 13 | 文章质量主评分 + 视觉规划 | article_quality_score（7 维，>=80 门禁）、视觉规划、migration 010 |
 
 ## 二、核心心智模型
 

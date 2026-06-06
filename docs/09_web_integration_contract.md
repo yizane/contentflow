@@ -66,5 +66,5 @@ Web 展示「为什么选 A 不选 B」：`topic_candidates.raw_score / selectio
 ## 文章质量与视觉规划字段（Phase 13）
 
 - 主评分：`articles.article_quality_score`（>=80 才可终审）；明细 `article_quality_scores` 最新一条
-- 视觉规划：`articles.visual_plan_json` / `article_versions.visual_plan_json`（brief/caption/altText/imagePrompt，无图片二进制）；Web 端按 placement 渲染占位或接生图
+- 视觉规划：`articles.visual_plan_json` / `article_versions.visual_plan_json`（说明、图注、替代文本、生图提示，无图片二进制）；Web 端按正文位置渲染占位或接生图
 - 发布包：`publish_packages.visual_plan_json` + `article_quality_json` + metadata 统计字段

@@ -30,7 +30,8 @@
     "review:mark": "node scripts/pipeline/review_mark.js",
     "keywords:analyze": "node scripts/tools/keywords_analyze.js",
     "config:sync": "node scripts/tools/config_sync.js",
-    "viewer": "node scripts/view_server.js"
+    "viewer": "node scripts/view_server.js",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=18"

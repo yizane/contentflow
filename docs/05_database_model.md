@@ -68,5 +68,5 @@ status 语义：`deferred` = 高分但近期主题饱和（窗口后回池，仍
 ## 文章质量主评分与视觉规划（migration 010）
 
 新增 `article_quality_scores`（每次评分一条：7 维细项 + recommendation + raw_json）。
-`article_versions` 增加 `article_quality_json` / `article_quality_score` / `visual_plan_json`；`articles` 增加 `article_quality_score` / `visual_plan_json`；`publish_packages` 增加 `visual_plan_json` / `article_quality_json`，metadata_json 含 articleQualityScore / visualPlanCount / requiredVisuals / hasVisualPlan。
+`article_versions` 增加 `article_quality_json` / `article_quality_score` / `visual_plan_json`；`articles` 增加 `article_quality_score` / `visual_plan_json`；`publish_packages` 增加 `visual_plan_json` / `article_quality_json`，metadata_json 含文章主评分与视觉规划统计字段。
 新文章状态 `needs_quality_revision`：主评分 < 80 被门禁拦下，修订后重评。

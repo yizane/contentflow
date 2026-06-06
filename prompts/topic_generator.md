@@ -41,6 +41,8 @@
 - 只适合八卦
 - 只适合服务商软文
 - 事实风险过高且无官方源支撑
+- sourceUrls 必须直接支撑亚马逊电商行业主题：来源标题/摘要需明确涉及 Amazon/亚马逊、FBA/FBM、Seller Central、ASIN、Buy Box、Amazon Ads、Prime Day 等亚马逊卖家场景。
+- 俄罗斯电商、Ozon/Wildberries、Temu/SHEIN、TikTok Shop、Shopee、Shopify、Walmart/eBay 等非亚马逊平台新闻，暂时不要改写成亚马逊运营主题；如果只是跨平台趋势参考，score 必须低于 60，不要输出。
 
 ## 选题价值优先级（必须遵守，不要为 SEO/GEO 热点牺牲内容价值）
 

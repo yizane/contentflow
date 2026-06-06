@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ContentFlow v1.0-rc1 本地运行流水线图</title>
+  <title>ContentFlow 当前工作流图（Phase 13）</title>
   <style>
     :root {
       color-scheme: light;
@@ -36,12 +36,21 @@
       margin: 32px auto 56px;
     }
 
-    header {
+    header, .card {
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 14px;
       box-shadow: var(--shadow);
+    }
+
+    header {
       padding: 28px 30px;
+      margin-bottom: 18px;
+    }
+
+    .card {
+      padding: 24px;
+      overflow: hidden;
       margin-bottom: 18px;
     }
 
@@ -60,7 +69,7 @@
     }
 
     h3 {
-      margin: 22px 0 10px;
+      margin: 20px 0 10px;
       font-size: 16px;
       letter-spacing: 0;
     }
@@ -78,21 +87,6 @@
       border-radius: 5px;
       padding: 1px 5px;
       color: #223349;
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 18px;
-    }
-
-    .card {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      box-shadow: var(--shadow);
-      padding: 24px;
-      overflow: hidden;
     }
 
     .svg-wrap {
@@ -171,11 +165,11 @@
       white-space: nowrap;
     }
 
-    .p0 { color: var(--red); border-color: #f3c4bf; background: #fff2f0; }
-    .p1 { color: var(--amber); border-color: #f3d49b; background: #fff7e8; }
-    .p2 { color: var(--blue); border-color: #bfd1fa; background: #eef4ff; }
-    .good { color: var(--green); border-color: #bde5cd; background: #eefaf3; }
-    .warn { color: var(--amber); border-color: #f3d49b; background: #fff7e8; }
+    .rule { color: var(--green); border-color: #bde5cd; background: #eefaf3; }
+    .agent { color: var(--violet); border-color: #cdbef1; background: #f5f0ff; }
+    .human { color: var(--blue); border-color: #bfd1fa; background: #eef4ff; }
+    .gate { color: var(--red); border-color: #f3c4bf; background: #fff2f0; }
+    .ops { color: var(--amber); border-color: #f3d49b; background: #fff7e8; }
 
     .callout {
       border: 1px solid #b9d3ff;
@@ -187,31 +181,26 @@
     }
 
     .callout strong { color: #123b7a; }
-    .two-col {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-    }
 
     @media (max-width: 860px) {
       .page { width: calc(100vw - 20px); margin-top: 10px; }
       header, .card { padding: 18px; border-radius: 12px; }
-      .two-col { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
   <main class="page">
     <header>
-      <h1>ContentFlow v1.0-rc1 本地运行流水线图</h1>
-      <p>本文档重点画当前项目真实怎么跑：本地通过 Node 启动一个个脚本，脚本从 MySQL 读取上一步结果，必要时内部调用 OpenClaw 完成搜索、生成、核查或评分，然后把结构化结果写回 MySQL，下一步继续读取。</p>
-      <p>结论先放前面：线上部署时应由业务系统自己的定时器或队列触发 <code>engine:daily</code> 或运行接口，OpenClaw 只做执行器，不建议把每日内容生产托管到 OpenClaw 内部定时任务。</p>
+      <h1>ContentFlow 当前工作流图（Phase 13）</h1>
+      <p>本文档只记录当前仓库真实运行的 workflow。运行态数据只进 MySQL；本地文件只保留代码、配置、prompt、schema、迁移和文档。</p>
+      <p><code>engine:daily</code> 负责 daily 幂等和运行控制，实际主链路由 <code>engine_batch.js</code> 串行执行。OpenClaw 只作为模型/智能体执行层；状态、正文、评分、trace、决策解释都以 MySQL 为准。</p>
+      <p>发布包、人工终审、报告、历史分类回填、选题压力测试是后续人工/运维动作，不属于 daily 主编排的必经步骤。</p>
     </header>
 
     <section class="card">
-      <h2>1. 本地运行工业流图</h2>
+      <h2>1. 当前主链路</h2>
       <div class="svg-wrap">
-        <svg viewBox="0 0 1240 860" role="img" aria-label="ContentFlow 本地运行工业流图">
+        <svg viewBox="0 0 1240 820" role="img" aria-label="ContentFlow 当前主链路">
           <defs>
             <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
               <path d="M0,0 L0,6 L9,3 z" fill="#506176"></path>
@@ -235,609 +224,346 @@
             </style>
           </defs>
 
-          <rect class="lane" x="24" y="36" width="1192" height="114" rx="16"></rect>
-          <text class="label" x="48" y="64">本地启动与运行控制</text>
-          <rect class="box box-amber" x="52" y="84" width="174" height="44"></rect>
-          <text class="title" x="68" y="103">终端或本地查看器</text>
-          <text class="tiny" x="68" y="120">人工点击或命令行触发</text>
-          <rect class="box box-cyan" x="270" y="84" width="190" height="44"></rect>
-          <text class="title" x="286" y="103">node scripts/engine_daily.js</text>
-          <text class="tiny" x="286" y="120">判断今天是否允许开跑</text>
-          <rect class="box box-cyan" x="504" y="84" width="188" height="44"></rect>
-          <text class="title" x="520" y="103">run_control_lib.js</text>
-          <text class="tiny" x="520" y="120">查 daily_key / 活跃运行</text>
-          <rect class="box box-blue" x="736" y="84" width="190" height="44"></rect>
-          <text class="title" x="752" y="103">MySQL：运行控制表</text>
-          <text class="tiny" x="752" y="120">engine_runs / run_actions</text>
-          <rect class="box box-cyan" x="970" y="84" width="190" height="44"></rect>
-          <text class="title" x="986" y="103">node scripts/engine_batch.js</text>
-          <text class="tiny" x="986" y="120">逐个启动下面的脚本</text>
+          <rect class="lane" x="24" y="32" width="1192" height="112" rx="16"></rect>
+          <text class="label" x="48" y="60">触发与运行控制</text>
+          <rect class="box box-amber" x="52" y="80" width="176" height="44"></rect>
+          <text class="title" x="68" y="99">终端 / Viewer / 定时器</text>
+          <text class="tiny" x="68" y="116">触发 start / retry / rebuild</text>
+          <rect class="box box-cyan" x="272" y="80" width="190" height="44"></rect>
+          <text class="title" x="288" y="99">engine_daily.js</text>
+          <text class="tiny" x="288" y="116">按 daily_key 判定能否开跑</text>
+          <rect class="box box-cyan" x="506" y="80" width="188" height="44"></rect>
+          <text class="title" x="522" y="99">run_control_lib.js</text>
+          <text class="tiny" x="522" y="116">查 active run / 归档旧 run</text>
+          <rect class="box box-blue" x="738" y="80" width="190" height="44"></rect>
+          <text class="title" x="754" y="99">MySQL run control</text>
+          <text class="tiny" x="754" y="116">engine_runs / run_actions</text>
+          <rect class="box box-cyan" x="972" y="80" width="190" height="44"></rect>
+          <text class="title" x="988" y="99">engine_batch.js</text>
+          <text class="tiny" x="988" y="116">创建 workflow_steps 后串行执行</text>
+          <path class="arrow" d="M228 102 H272"></path>
+          <path class="arrow" d="M462 102 H506"></path>
+          <path class="arrow" d="M694 102 H738"></path>
+          <path class="arrow" d="M928 102 H972"></path>
 
-          <path class="arrow" d="M226 106 H270"></path>
-          <path class="arrow" d="M460 106 H504"></path>
-          <path class="arrow" d="M692 106 H736"></path>
-          <path class="arrow" d="M926 106 H970"></path>
+          <rect class="lane" x="24" y="180" width="1192" height="590" rx="16"></rect>
+          <text class="label" x="48" y="208">左：engine_batch 主链路；右：每步对应的 MySQL 结果表</text>
+          <text class="label" x="72" y="236">主链路</text>
+          <text class="label" x="668" y="236">MySQL 写入/读取点</text>
 
-          <rect class="lane" x="24" y="188" width="1192" height="632" rx="16"></rect>
-          <text class="label" x="48" y="216">左：内容生产流水线竖向串行执行；右：MySQL 结果表实时沉淀，下一步继续读取</text>
-          <text class="label" x="72" y="244">内容生产流水线</text>
-          <text class="label" x="668" y="244">MySQL 实时结果表（逐步对应）</text>
+          <rect class="box box-green" x="52" y="258" width="430" height="44"></rect>
+          <text class="title" x="68" y="277">1. 采集来源 + 内容分类</text>
+          <text class="tiny" x="250" y="277">pipeline/sources_collect.js</text>
+          <text class="tiny" x="68" y="294">RSS/网页规则采集；search_query 调 OpenClaw；低置信分类调 OpenClaw</text>
 
-          <rect class="box box-green" x="52" y="266" width="430" height="44"></rect>
-          <text class="title" x="68" y="285">1. 采集来源</text>
-          <text class="tiny" x="230" y="285">node pipeline/sources_collect.js</text>
-          <text class="tiny" x="68" y="302">规则抓取 + 自动内容分类（规则优先，低置信调 OpenClaw）</text>
-
-          <rect class="box box-violet" x="52" y="320" width="430" height="44"></rect>
-          <text class="title" x="68" y="339">2. 生成主题池</text>
-          <text class="tiny" x="230" y="339">node pipeline/topics_generate.js</text>
-          <text class="tiny" x="68" y="356">读取来源材料，调用 OpenClaw 生成候选主题</text>
+          <rect class="box box-violet" x="52" y="316" width="430" height="44"></rect>
+          <text class="title" x="68" y="335">2. 生成主题池</text>
+          <text class="tiny" x="250" y="335">pipeline/topics_generate.js</text>
+          <text class="tiny" x="68" y="352">生成候选、raw score、内容价值分、三层分类和来源线索</text>
 
           <rect class="box box-green" x="52" y="374" width="430" height="44"></rect>
-          <text class="title" x="68" y="393">3. 创建文章任务</text>
-          <text class="tiny" x="230" y="393">node pipeline/jobs_create.js</text>
-          <text class="tiny" x="68" y="410">按分数、去重和策略选择要写的主题</text>
+          <text class="title" x="68" y="393">3. 组合选题并创建 job</text>
+          <text class="tiny" x="250" y="393">pipeline/jobs_create.js</text>
+          <text class="tiny" x="68" y="410">selection_score = value * 0.55 + raw * 0.25 + 组合奖惩</text>
 
-          <rect class="box box-violet" x="52" y="428" width="430" height="44"></rect>
-          <text class="title" x="68" y="447">4. 生成文章</text>
-          <text class="tiny" x="230" y="447">node pipeline/jobs_run.js</text>
-          <text class="tiny" x="68" y="464">调用 OpenClaw 写正文、文章 JSON 和质量报告</text>
+          <rect class="box box-violet" x="52" y="432" width="430" height="44"></rect>
+          <text class="title" x="68" y="451">4. 生成文章 + 视觉规划</text>
+          <text class="tiny" x="250" y="451">pipeline/jobs_run.js</text>
+          <text class="tiny" x="68" y="468">文章正文、article JSON、quality gate、视觉规划写入版本</text>
 
-          <rect class="box box-violet" x="52" y="482" width="430" height="44"></rect>
-          <text class="title" x="68" y="501">5. 事实核查</text>
-          <text class="tiny" x="230" y="501">node pipeline/factcheck_run.js</text>
-          <text class="tiny" x="68" y="518">调用 OpenClaw 检查事实风险、缺来源和发布就绪度</text>
+          <rect class="box box-red" x="52" y="490" width="430" height="44"></rect>
+          <text class="title" x="68" y="509">5. 事实核查 + 主质量门禁</text>
+          <text class="tiny" x="250" y="509">pipeline/factcheck_run.js</text>
+          <text class="tiny" x="68" y="526">article_quality_score &lt; 80 转 needs_quality_revision，不进终审</text>
 
-          <rect class="box box-red" x="52" y="536" width="430" height="44"></rect>
-          <text class="title" x="68" y="555">6. 补来源与修订</text>
-          <text class="tiny" x="230" y="555">node pipeline/sources_fix.js</text>
-          <text class="tiny" x="68" y="572">调用来源补全与文章修订脚本；多轮不收敛转人工</text>
+          <rect class="box box-violet" x="52" y="548" width="430" height="44"></rect>
+          <text class="title" x="68" y="567">6. 渠道改写</text>
+          <text class="tiny" x="250" y="567">pipeline/channels_generate.js</text>
+          <text class="tiny" x="68" y="584">生成公众号、抖音、小红书稿；不是发布动作</text>
 
-          <rect class="box box-violet" x="52" y="590" width="430" height="44"></rect>
-          <text class="title" x="68" y="609">7. 渠道改写</text>
-          <text class="tiny" x="230" y="609">node pipeline/channels_generate.js</text>
-          <text class="tiny" x="68" y="626">调用 OpenClaw 生成公众号、抖音、小红书稿</text>
+          <rect class="box box-violet" x="52" y="606" width="430" height="44"></rect>
+          <text class="title" x="68" y="625">7. SEO/GEO 评分</text>
+          <text class="tiny" x="250" y="625">pipeline/score_seo_geo.js</text>
+          <text class="tiny" x="68" y="642">只处理 ready_for_review；分数是建议线，不覆盖主质量门禁</text>
 
-          <rect class="box box-violet" x="52" y="644" width="430" height="44"></rect>
-          <text class="title" x="68" y="663">8. SEO/GEO 评分</text>
-          <text class="tiny" x="230" y="663">node pipeline/score_seo_geo.js</text>
-          <text class="tiny" x="68" y="680">调用 OpenClaw 给文章打 SEO、GEO 和综合分</text>
+          <rect class="box box-green" x="52" y="664" width="430" height="44"></rect>
+          <text class="title" x="68" y="683">8. 收尾快照与运行汇总</text>
+          <text class="tiny" x="250" y="683">tools/db_list.js + engine_batch final update</text>
+          <text class="tiny" x="68" y="700">打印 DB 快照，更新 engine_runs.summary_json</text>
 
-          <rect class="box box-green" x="52" y="698" width="430" height="44"></rect>
-          <text class="title" x="68" y="717">9. 生成发布包</text>
-          <text class="tiny" x="230" y="717">node pipeline/package_export.js</text>
-          <text class="tiny" x="68" y="734">规则整合正文、质量报告、渠道稿和元数据</text>
+          <path class="arrow" d="M267 302 V316"></path>
+          <path class="arrow" d="M267 360 V374"></path>
+          <path class="arrow" d="M267 418 V432"></path>
+          <path class="arrow" d="M267 476 V490"></path>
+          <path class="arrow" d="M267 534 V548"></path>
+          <path class="arrow" d="M267 592 V606"></path>
+          <path class="arrow" d="M267 650 V664"></path>
 
-          <rect class="box box-blue" x="52" y="752" width="430" height="44"></rect>
-          <text class="title" x="68" y="771">10. 人工终审</text>
-          <text class="tiny" x="230" y="771">node pipeline/review_mark.js</text>
-          <text class="tiny" x="68" y="788">运营标记通过、打回、批准发布或归档</text>
+          <rect class="box box-blue" x="650" y="258" width="500" height="44"></rect>
+          <text class="title" x="668" y="277">source_items / source_collection_logs / content_classifications</text>
+          <text class="tiny" x="668" y="294">来源材料、采集日志、分类审计；同时写 workflow_events</text>
 
-          <path class="arrow" d="M267 310 V320"></path>
-          <path class="arrow" d="M267 364 V374"></path>
-          <path class="arrow" d="M267 418 V428"></path>
-          <path class="arrow" d="M267 472 V482"></path>
-          <path class="arrow" d="M267 526 V536"></path>
-          <path class="arrow" d="M267 580 V590"></path>
-          <path class="arrow" d="M267 634 V644"></path>
-          <path class="arrow" d="M267 688 V698"></path>
-          <path class="arrow" d="M267 742 V752"></path>
+          <rect class="box box-blue" x="650" y="316" width="500" height="44"></rect>
+          <text class="title" x="668" y="335">topic_candidates / model_runs</text>
+          <text class="tiny" x="668" y="352">raw_score、content_value_score、value_breakdown、分类字段</text>
 
-          <rect class="box box-blue" x="650" y="266" width="484" height="44"></rect>
-          <text class="title" x="668" y="285">来源材料</text>
-          <text class="tiny" x="810" y="285">source_items / source_collection_logs / content_classifications</text>
-          <text class="tiny" x="668" y="302">同时写 workflow_steps / workflow_events</text>
+          <rect class="box box-blue" x="650" y="374" width="500" height="44"></rect>
+          <text class="title" x="668" y="393">article_jobs / topic_candidates.selection_* / status_transitions</text>
+          <text class="tiny" x="668" y="410">selected / deferred / skipped_low_value 等选择解释入库</text>
 
-          <rect class="box box-blue" x="650" y="320" width="484" height="44"></rect>
-          <text class="title" x="668" y="339">主题池</text>
-          <text class="tiny" x="810" y="339">topic_candidates / model_runs</text>
-          <text class="tiny" x="668" y="356">候选主题、拒绝原因、分数、优先级、三层内容分类</text>
+          <rect class="box box-blue" x="650" y="432" width="500" height="44"></rect>
+          <text class="title" x="668" y="451">articles / article_versions / quality_reports / model_runs</text>
+          <text class="tiny" x="668" y="468">正文、质量自检、视觉规划、版本链</text>
 
-          <rect class="box box-blue" x="650" y="374" width="484" height="44"></rect>
-          <text class="title" x="668" y="393">文章任务</text>
-          <text class="tiny" x="810" y="393">article_jobs / status_transitions</text>
-          <text class="tiny" x="668" y="410">待执行任务、选题来源、写作策略</text>
+          <rect class="box box-red" x="650" y="490" width="500" height="44"></rect>
+          <text class="title" x="668" y="509">fact_checks / article_quality_scores / articles.status</text>
+          <text class="tiny" x="668" y="526">ready_for_review / needs_fact_sources / needs_quality_revision / failed</text>
 
-          <rect class="box box-blue" x="650" y="428" width="484" height="44"></rect>
-          <text class="title" x="668" y="447">文章正文</text>
-          <text class="tiny" x="810" y="447">articles / article_versions / quality_reports / model_runs</text>
-          <text class="tiny" x="668" y="464">正文 Markdown、文章 JSON、质量报告</text>
+          <rect class="box box-blue" x="650" y="548" width="500" height="44"></rect>
+          <text class="title" x="668" y="567">channel_outputs / model_runs</text>
+          <text class="tiny" x="668" y="584">三渠道内容和校验结果</text>
 
-          <rect class="box box-blue" x="650" y="482" width="484" height="44"></rect>
-          <text class="title" x="668" y="501">事实核查</text>
-          <text class="tiny" x="810" y="501">fact_checks / source_resolutions / model_runs</text>
-          <text class="tiny" x="668" y="518">事实风险、缺来源、发布就绪度</text>
+          <rect class="box box-blue" x="650" y="606" width="500" height="44"></rect>
+          <text class="title" x="668" y="625">seo_geo_scores / articles.seo_score / articles.geo_score</text>
+          <text class="tiny" x="668" y="642">SEO、GEO、综合建议、扣分项</text>
 
-          <rect class="box box-red" x="650" y="536" width="484" height="44"></rect>
-          <text class="title" x="668" y="555">补源修订</text>
-          <text class="tiny" x="810" y="555">source_resolutions / article_versions / fact_checks</text>
-          <text class="tiny" x="668" y="572">权威来源、局部修订、再次核查</text>
+          <rect class="box box-blue" x="650" y="664" width="500" height="44"></rect>
+          <text class="title" x="668" y="683">engine_runs.summary_json / workflow_steps</text>
+          <text class="tiny" x="668" y="700">最终状态、计数、warnings、errors、traceFailures</text>
 
-          <rect class="box box-blue" x="650" y="590" width="484" height="44"></rect>
-          <text class="title" x="668" y="609">渠道稿</text>
-          <text class="tiny" x="810" y="609">channel_outputs / model_runs</text>
-          <text class="tiny" x="668" y="626">公众号、抖音、小红书三套内容</text>
-
-          <rect class="box box-blue" x="650" y="644" width="484" height="44"></rect>
-          <text class="title" x="668" y="663">双评分</text>
-          <text class="tiny" x="810" y="663">seo_geo_scores / articles 分数字段 / model_runs</text>
-          <text class="tiny" x="668" y="680">SEO、GEO、综合分和扣分项</text>
-
-          <rect class="box box-blue" x="650" y="698" width="484" height="44"></rect>
-          <text class="title" x="668" y="717">发布包</text>
-          <text class="tiny" x="810" y="717">publish_packages</text>
-          <text class="tiny" x="668" y="734">正文、渠道稿、质量信息整合成包</text>
-
-          <rect class="box box-blue" x="650" y="752" width="484" height="44"></rect>
-          <text class="title" x="668" y="771">终审记录</text>
-          <text class="tiny" x="810" y="771">review_actions / status_transitions</text>
-          <text class="tiny" x="668" y="788">通过、打回、批准发布、归档</text>
-
-          <path class="dbline" d="M482 288 H650"></path>
-          <path class="dbline" d="M482 342 H650"></path>
+          <path class="dbline" d="M482 280 H650"></path>
+          <path class="dbline" d="M482 338 H650"></path>
           <path class="dbline" d="M482 396 H650"></path>
-          <path class="dbline" d="M482 450 H650"></path>
-          <path class="dbline" d="M482 504 H650"></path>
-          <path class="dbline" d="M482 558 H650"></path>
-          <path class="dbline" d="M482 612 H650"></path>
-          <path class="dbline" d="M482 666 H650"></path>
-          <path class="dbline" d="M482 720 H650"></path>
-          <path class="dbline" d="M482 774 H650"></path>
+          <path class="dbline" d="M482 454 H650"></path>
+          <path class="dbline" d="M482 512 H650"></path>
+          <path class="dbline" d="M482 570 H650"></path>
+          <path class="dbline" d="M482 628 H650"></path>
+          <path class="dbline" d="M482 686 H650"></path>
         </svg>
       </div>
       <div class="legend">
-        <span><i class="dot" style="background: var(--cyan)"></i>Node 本地脚本</span>
-        <span><i class="dot" style="background: var(--violet)"></i>脚本内部调用 OpenClaw</span>
-        <span><i class="dot" style="background: var(--green)"></i>纯规则处理</span>
-        <span><i class="dot" style="background: var(--blue)"></i>MySQL 中间结果</span>
-        <span><i class="dot" style="background: var(--red)"></i>补源/模型调用等高风险信息</span>
+        <span><i class="dot" style="background: var(--cyan)"></i>Node 编排/CLI</span>
+        <span><i class="dot" style="background: var(--violet)"></i>调用 OpenClaw 的节点</span>
+        <span><i class="dot" style="background: var(--green)"></i>规则节点</span>
+        <span><i class="dot" style="background: var(--blue)"></i>MySQL 结果表</span>
+        <span><i class="dot" style="background: var(--red)"></i>质量/事实门禁</span>
+      </div>
+      <div class="callout">
+        <strong>主链路边界：</strong><code>package:export</code>、<code>review:mark</code>、<code>engine:report</code>、<code>topic:audition</code>、<code>content:classify</code> 都是主链路之外的人工或运维动作。它们仍写 MySQL，但不应被画成 daily 必经步骤。
       </div>
     </section>
 
     <section class="card">
       <h2>2. 单个 OpenClaw 节点内部怎么执行</h2>
       <div class="svg-wrap">
-        <svg viewBox="0 0 1240 620" role="img" aria-label="ContentFlow OpenClaw 节点内部执行图">
+        <svg viewBox="0 0 1240 560" role="img" aria-label="OpenClaw 节点内部执行图">
           <defs>
             <marker id="arrow2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
               <path d="M0,0 L0,6 L9,3 z" fill="#506176"></path>
             </marker>
             <style>
               .wbox { fill: #fff; stroke: #b9c6d6; stroke-width: 1.4; rx: 10; }
-              .trigger { fill: #fff8ea; stroke: #e6bd70; }
-              .rule { fill: #effaf4; stroke: #8fd3aa; }
-              .llm { fill: #f5f0ff; stroke: #b8a3ea; }
-              .human { fill: #eef5ff; stroke: #8eb5ff; }
-              .data { fill: #edf3fa; stroke: #aab9ca; }
-              .fail { fill: #fff1ef; stroke: #e2a19a; }
-              .t { font: 700 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #17202a; }
-              .s { font: 500 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #58677a; }
-              .n { font: 700 11px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #506176; }
-              .arr { stroke: #506176; stroke-width: 1.7; fill: none; marker-end: url(#arrow2); }
-              .loop { stroke: #a56200; stroke-width: 1.7; fill: none; marker-end: url(#arrow2); stroke-dasharray: 5 5; }
+              .rule2 { fill: #effaf4; stroke: #8fd3aa; }
+              .llm2 { fill: #f5f0ff; stroke: #b8a3ea; }
+              .data2 { fill: #edf3fa; stroke: #aab9ca; }
+              .fail2 { fill: #fff1ef; stroke: #e2a19a; }
+              .t2 { font: 700 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #17202a; }
+              .s2 { font: 500 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #58677a; }
+              .arr2 { stroke: #506176; stroke-width: 1.7; fill: none; marker-end: url(#arrow2); }
             </style>
           </defs>
 
-          <rect class="wbox data" x="52" y="70" width="186" height="74"></rect>
-          <text class="t" x="72" y="96">读取上一步结果</text>
-          <text class="s" x="72" y="116">从 MySQL 取文章、选题、来源</text>
-          <text class="s" x="72" y="134">也读取提示词和策略配置</text>
+          <rect class="wbox data2" x="52" y="70" width="186" height="74"></rect>
+          <text class="t2" x="72" y="96">读取结构化输入</text>
+          <text class="s2" x="72" y="116">MySQL 中的选题、文章、来源</text>
+          <text class="s2" x="72" y="134">以及 DB/文件 seed 配置</text>
 
-          <rect class="wbox rule" x="288" y="70" width="186" height="74"></rect>
-          <text class="t" x="308" y="96">组装任务提示词</text>
-          <text class="s" x="308" y="116">prompt_lib.js</text>
-          <text class="s" x="308" y="134">把输入整理成结构化要求</text>
+          <rect class="wbox rule2" x="288" y="70" width="186" height="74"></rect>
+          <text class="t2" x="308" y="96">组装 prompt</text>
+          <text class="s2" x="308" y="116">prompt_lib.js</text>
+          <text class="s2" x="308" y="134">注入 schema、规则、白名单</text>
 
-          <rect class="wbox llm" x="524" y="70" width="186" height="74"></rect>
-          <text class="t" x="544" y="96">调用 OpenClaw</text>
-          <text class="s" x="544" y="116">openclaw agent --json</text>
-          <text class="s" x="544" y="134">可用搜索和网页读取工具</text>
+          <rect class="wbox llm2" x="524" y="70" width="186" height="74"></rect>
+          <text class="t2" x="544" y="96">调用 provider</text>
+          <text class="s2" x="544" y="116">providers.resolveRoute()</text>
+          <text class="s2" x="544" y="134">生产路径 openclaw_cli</text>
 
-          <rect class="wbox rule" x="760" y="70" width="186" height="74"></rect>
-          <text class="t" x="780" y="96">解析模型返回</text>
-          <text class="s" x="780" y="116">extractJson()：抽取 JSON</text>
-          <text class="s" x="780" y="134">只接受 JSON 对象或数组</text>
+          <rect class="wbox rule2" x="760" y="70" width="186" height="74"></rect>
+          <text class="t2" x="780" y="96">解析 JSON</text>
+          <text class="s2" x="780" y="116">extractJson()</text>
+          <text class="s2" x="780" y="134">只接受对象或数组</text>
 
-          <rect class="wbox rule" x="996" y="70" width="186" height="74"></rect>
-          <text class="t" x="1016" y="96">本地校验</text>
-          <text class="s" x="1016" y="116">validate_data_lib.js</text>
-          <text class="s" x="1016" y="134">结构约束 + 业务规则</text>
+          <rect class="wbox rule2" x="996" y="70" width="186" height="74"></rect>
+          <text class="t2" x="1016" y="96">本地校验</text>
+          <text class="s2" x="1016" y="116">validate_data_lib.js</text>
+          <text class="s2" x="1016" y="134">结构约束 + 业务规则</text>
 
-          <path class="arr" d="M238 107 H288"></path>
-          <path class="arr" d="M474 107 H524"></path>
-          <path class="arr" d="M710 107 H760"></path>
-          <path class="arr" d="M946 107 H996"></path>
+          <path class="arr2" d="M238 107 H288"></path>
+          <path class="arr2" d="M474 107 H524"></path>
+          <path class="arr2" d="M710 107 H760"></path>
+          <path class="arr2" d="M946 107 H996"></path>
 
-          <rect class="wbox data" x="174" y="250" width="210" height="82"></rect>
-          <text class="t" x="194" y="276">记录模型调用</text>
-          <text class="s" x="194" y="296">写 model_runs</text>
-          <text class="s" x="194" y="314">保存提示词、原始回复、解析结果</text>
+          <rect class="wbox data2" x="154" y="250" width="244" height="82"></rect>
+          <text class="t2" x="174" y="276">记录 model_runs</text>
+          <text class="s2" x="174" y="296">task_prompt / raw_response</text>
+          <text class="s2" x="174" y="314">parsed_output_json / status / error</text>
 
-          <rect class="wbox data" x="514" y="250" width="210" height="82"></rect>
-          <text class="t" x="534" y="276">写业务结果</text>
-          <text class="s" x="534" y="296">写主题 / 文章 / 核查 / 评分</text>
-          <text class="s" x="534" y="314">供下一个 Node 脚本继续读取</text>
+          <rect class="wbox data2" x="498" y="250" width="244" height="82"></rect>
+          <text class="t2" x="518" y="276">写业务结果</text>
+          <text class="s2" x="518" y="296">topic/article/fact/source/score</text>
+          <text class="s2" x="518" y="314">供下一步继续读取</text>
 
-          <rect class="wbox data" x="854" y="250" width="210" height="82"></rect>
-          <text class="t" x="874" y="276">写运行追踪</text>
-          <text class="s" x="874" y="296">workflow_steps / workflow_events</text>
-          <text class="s" x="874" y="314">status_transitions</text>
+          <rect class="wbox data2" x="842" y="250" width="244" height="82"></rect>
+          <text class="t2" x="862" y="276">写 workflow trace</text>
+          <text class="s2" x="862" y="296">workflow_steps / workflow_events</text>
+          <text class="s2" x="862" y="314">status_transitions</text>
 
-          <path class="arr" d="M1089 144 C1089 198, 279 198, 279 250"></path>
-          <path class="arr" d="M1089 144 C1089 206, 619 206, 619 250"></path>
-          <path class="arr" d="M1089 144 C1089 214, 959 214, 959 250"></path>
+          <path class="arr2" d="M1089 144 C1089 198, 276 198, 276 250"></path>
+          <path class="arr2" d="M1089 144 C1089 206, 620 206, 620 250"></path>
+          <path class="arr2" d="M1089 144 C1089 214, 964 214, 964 250"></path>
 
-          <rect class="wbox fail" x="174" y="430" width="890" height="78"></rect>
-          <text class="t" x="200" y="458">失败时怎么处理</text>
-          <text class="s" x="200" y="480">OpenClaw 调用失败、JSON 解析失败、校验失败都会写入 model_runs 和 workflow_events；当前步骤标记为失败或警告，engine_batch 汇总成部分成功或失败。</text>
-          <text class="s" x="200" y="498">人工或定时器后续可用 retry（重试）复用未完成任务，或 rebuild（重建）归档旧数据后完整重跑。</text>
+          <rect class="wbox fail2" x="154" y="420" width="932" height="76"></rect>
+          <text class="t2" x="180" y="448">失败处理</text>
+          <text class="s2" x="180" y="470">OpenClaw 调用失败、JSON 解析失败、校验失败都会落 model_runs 和 workflow_events；步骤标记为 failed/warning。</text>
+          <text class="s2" x="180" y="488">后续用 retry 复用未完成 job，或 rebuild 归档旧 run 后重跑；不要把失败原因写进正文。</text>
         </svg>
       </div>
-      <div class="callout">
-        <strong>注意：</strong>当前项目的运行形态就是本地 Node 进程串行启动脚本。OpenClaw 不保存状态，只在某些脚本内部被调用；真正的状态、正文、评分、核查结果和追踪记录都写入 MySQL。
-      </div>
     </section>
 
     <section class="card">
-      <h2>3. 流水线节点执行方式</h2>
+      <h2>3. 节点清单与主从关系</h2>
+      <h3>engine_batch 主链路</h3>
       <table>
         <thead>
           <tr>
+            <th>顺序</th>
             <th>节点</th>
             <th>入口/脚本</th>
-            <th>执行类型</th>
-            <th>执行者</th>
-            <th>主要输入</th>
-            <th>主要落库/输出</th>
-            <th>说明</th>
+            <th>类型</th>
+            <th>主要写入</th>
+            <th>要点</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td>触发每日运行</td>
-            <td><code>npm run engine:daily</code> 或本地查看器运行接口</td>
-            <td><span class="tag good">规则</span></td>
-            <td>命令行 / 本地查看器 / 外部定时器</td>
-            <td>mode、daily_key、actor</td>
-            <td><code>run_actions</code></td>
-            <td>只负责发起请求；是否允许由运行控制逻辑判断。</td>
-          </tr>
-          <tr>
-            <td>每日幂等控制</td>
-            <td><code>engine_daily.js</code> + <code>run_control_lib.js</code></td>
-            <td><span class="tag good">规则</span></td>
-            <td>Node 进程</td>
-            <td><code>engine_runs.daily_key</code>、<code>is_active</code></td>
-            <td><code>engine_runs</code>、<code>run_actions</code></td>
-            <td>start（首次运行）、retry（重试）、rebuild（重建）、force（强制）四模式；rebuild 归档不物理删除。</td>
-          </tr>
-          <tr>
-            <td>主编排</td>
-            <td><code>engine_batch.js</code></td>
-            <td><span class="tag good">规则</span></td>
-            <td>Node 进程</td>
-            <td>limit（数量）、min-score（最低分）、strategy（写作策略）</td>
-            <td><code>workflow_steps</code>、<code>workflow_events</code></td>
-            <td>逐步创建流水线步骤记录，再以子进程执行每个脚本。</td>
-          </tr>
-          <tr>
-            <td>采集来源</td>
+            <td>1</td>
+            <td>采集来源 + 内容分类</td>
             <td><code>pipeline/sources_collect.js</code></td>
-            <td><span class="tag good">规则</span> + <span class="tag p2">智能体</span></td>
-            <td>Node 网页采集 + OpenClaw 搜索采集</td>
-            <td><code>config_sources</code>、<code>sources_yaml</code></td>
-            <td><code>source_items</code>（含分类字段）、<code>source_collection_logs</code>、<code>content_classifications</code></td>
-            <td>RSS 和网页走规则采集；search_query（搜索查询）走 OpenClaw 搜索；采集后自动做内容分类。</td>
+            <td><span class="tag rule">规则</span> + <span class="tag agent">OpenClaw</span></td>
+            <td><code>source_items</code>、<code>source_collection_logs</code>、<code>content_classifications</code></td>
+            <td>HTTP/RSS 规则采集；search_query 调 OpenClaw；分类规则优先，低置信调用 AI。</td>
           </tr>
           <tr>
+            <td>2</td>
             <td>生成主题池</td>
             <td><code>pipeline/topics_generate.js</code></td>
-            <td><span class="tag p2">模型</span></td>
-            <td>OpenClaw 智能体</td>
-            <td>最近 source_items、keywords</td>
+            <td><span class="tag agent">OpenClaw</span></td>
             <td><code>topic_candidates</code>、<code>model_runs</code></td>
-            <td>输出 JSON（含 contentType/businessCategory/topicCluster），经结构约束和业务规则校验，再做去重和关键词节流。</td>
+            <td>候选必须包含 raw score、content value score、分类字段；缺失按软着陆规则回退。</td>
           </tr>
           <tr>
-            <td>创建文章任务</td>
+            <td>3</td>
+            <td>组合选题并创建 job</td>
             <td><code>pipeline/jobs_create.js</code></td>
-            <td><span class="tag good">规则</span></td>
-            <td>Node 进程</td>
-            <td>候选主题、分数、策略</td>
-            <td><code>article_jobs</code>、<code>status_transitions</code></td>
-            <td>选择高分候选，不需要调用模型。</td>
+            <td><span class="tag rule">规则</span></td>
+            <td><code>article_jobs</code>、<code>topic_candidates.selection_*</code>、<code>status_transitions</code></td>
+            <td>高分但饱和/重复/来源弱进入 <code>deferred</code>；低价值不应伪装成 rejected。</td>
           </tr>
           <tr>
-            <td>生成文章</td>
+            <td>4</td>
+            <td>生成文章 + 视觉规划</td>
             <td><code>pipeline/jobs_run.js</code></td>
-            <td><span class="tag p2">模型</span></td>
-            <td>OpenClaw 智能体</td>
-            <td>article_job、prompt、strategy</td>
+            <td><span class="tag agent">OpenClaw</span></td>
             <td><code>articles</code>、<code>article_versions</code>、<code>quality_reports</code>、<code>model_runs</code></td>
-            <td>最多重试；正文和 quality JSON 必须通过本地校验。</td>
+            <td>文章 schema 要求视觉规划；正文禁止 AI/联网失败痕迹；质量自检不是终审门禁。</td>
           </tr>
           <tr>
-            <td>事实核查</td>
+            <td>5</td>
+            <td>事实核查 + 主质量门禁</td>
             <td><code>pipeline/factcheck_run.js</code></td>
-            <td><span class="tag p2">模型</span></td>
-            <td>OpenClaw 智能体</td>
-            <td>文章正文、事实核查提示词</td>
-            <td><code>fact_checks</code>、<code>source_resolutions</code>、文章状态</td>
-            <td>决定 ready_for_review、needs_fact_sources 或 fact_check_failed。</td>
+            <td><span class="tag agent">OpenClaw</span> + <span class="tag gate">门禁</span></td>
+            <td><code>fact_checks</code>、<code>article_quality_scores</code>、<code>articles.status</code></td>
+            <td><code>article_quality_score &lt; 80</code> 进入 <code>needs_quality_revision</code>；事实缺源进入 <code>needs_fact_sources</code>。</td>
           </tr>
           <tr>
-            <td>来源补全与修订</td>
-            <td><code>pipeline/sources_fix.js</code>、<code>pipeline/sources_resolve.js</code>、<code>pipeline/articles_revise.js</code></td>
-            <td><span class="tag p2">智能体</span></td>
-            <td>OpenClaw 智能体 + Node 控制</td>
-            <td>必须修复的事实点、internal_claims、来源策略</td>
-            <td>新版 <code>article_versions</code>、<code>source_resolutions</code>、再次事实核查</td>
-            <td>这是闭环修复节点；多轮仍不收敛时转人工。</td>
-          </tr>
-          <tr>
+            <td>6</td>
             <td>渠道改写</td>
             <td><code>pipeline/channels_generate.js</code></td>
-            <td><span class="tag p2">模型</span></td>
-            <td>OpenClaw 智能体</td>
-            <td>已就绪或已校验的文章版本</td>
-            <td><code>channel_outputs</code></td>
-            <td>生成公众号、抖音、小红书三渠道稿，并做禁词/结构校验。</td>
+            <td><span class="tag agent">OpenClaw</span></td>
+            <td><code>channel_outputs</code>、<code>model_runs</code></td>
+            <td>生成公众号、抖音、小红书稿；这是内容资产，不是真实发布。</td>
           </tr>
           <tr>
-            <td>SEO/GEO 双评分</td>
+            <td>7</td>
+            <td>SEO/GEO 评分</td>
             <td><code>pipeline/score_seo_geo.js</code></td>
-            <td><span class="tag p2">模型</span></td>
-            <td>OpenClaw 智能体</td>
-            <td>文章正文、strategy</td>
-            <td><code>seo_geo_scores</code>、文章分数字段、版本 JSON</td>
-            <td>输出总分、SEO、GEO、事实分、业务契合度、可读性。</td>
+            <td><span class="tag agent">OpenClaw</span></td>
+            <td><code>seo_geo_scores</code>、文章/版本分数字段</td>
+            <td>只处理 <code>ready_for_review</code>；SEO/GEO 是建议线，不能覆盖主质量分和事实底线。</td>
           </tr>
           <tr>
-            <td>发布包</td>
-            <td><code>pipeline/package_export.js</code></td>
-            <td><span class="tag good">规则</span></td>
-            <td>Node 进程</td>
-            <td>文章、版本、渠道稿、质量报告</td>
+            <td>8</td>
+            <td>收尾快照</td>
+            <td><code>tools/db_list.js</code> + <code>engine_batch.js</code></td>
+            <td><span class="tag rule">规则</span></td>
+            <td><code>engine_runs.summary_json</code>、<code>workflow_steps</code></td>
+            <td>打印当前文章快照，汇总计数、错误、warning、traceFailures。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>主链路之外的人工/运维动作</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>命令</th>
+            <th>类型</th>
+            <th>作用</th>
+            <th>主要写入</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>npm run sources:fix</code></td>
+            <td><span class="tag agent">闭环修订</span></td>
+            <td>处理 <code>needs_fact_sources</code>：来源补全、局部修订、再次事实核查。</td>
+            <td><code>source_resolutions</code>、新版 <code>article_versions</code>、<code>fact_checks</code></td>
+          </tr>
+          <tr>
+            <td><code>npm run score:article-quality</code></td>
+            <td><span class="tag gate">质量复评</span></td>
+            <td>对存量或指定文章重跑主质量评分；可用于验证修订是否过 80。</td>
+            <td><code>article_quality_scores</code>、文章/版本主评分字段</td>
+          </tr>
+          <tr>
+            <td><code>npm run topic:audition</code></td>
+            <td><span class="tag rule">选题压力测试</span></td>
+            <td>模拟未来 N 轮选题，不生成文章，用于发现重复、偏科和低价值候选。</td>
+            <td><code>topic_audition_runs</code>、<code>topic_audition_items</code></td>
+          </tr>
+          <tr>
+            <td><code>npm run content:classify</code></td>
+            <td><span class="tag rule">回填</span> + <span class="tag agent">OpenClaw</span></td>
+            <td>给历史 source/topic/article 回填三层内容分类。</td>
+            <td>实体分类字段、<code>content_classifications</code></td>
+          </tr>
+          <tr>
+            <td><code>npm run package:export</code></td>
+            <td><span class="tag rule">发布包生成</span></td>
+            <td>把正文、质量、事实、渠道、视觉规划整合成可被 Web 读取的包；不落 output 文件。</td>
             <td><code>publish_packages</code></td>
-            <td>不真实发布，只生成可交付资产。</td>
           </tr>
           <tr>
-            <td>人工终审</td>
-            <td><code>pipeline/review_mark.js</code> 或本地查看器/网页后台终审接口</td>
-            <td><span class="tag good">人工</span></td>
-            <td>运营/审核人</td>
-            <td>终审状态、备注、操作者</td>
+            <td><code>npm run review:mark</code></td>
+            <td><span class="tag human">人工终审</span></td>
+            <td>人工标记 reviewed / rejected / approved_for_publish / archived；低于 80 的主评分不能通过。</td>
             <td><code>review_actions</code>、<code>status_transitions</code></td>
-            <td>approved_for_publish/published 不应被自动归档。</td>
           </tr>
           <tr>
-            <td>内容分类回填</td>
-            <td><code>pipeline/content_classify.js</code></td>
-            <td><span class="tag good">规则</span> + <span class="tag p2">模型</span></td>
-            <td>Node 规则 + OpenClaw 智能体</td>
-            <td>未分类的 source_items / topic_candidates / articles、content_taxonomy</td>
-            <td>实体分类字段、<code>content_classifications</code>、<code>model_runs</code></td>
-            <td>规则置信度 ≥ 0.85 直接采用；否则批量调用 OpenClaw；历史数据分批回填。</td>
-          </tr>
-          <tr>
-            <td>运行报告</td>
-            <td><code>engine_report.js</code></td>
-            <td><span class="tag good">规则</span></td>
-            <td>Node 进程</td>
-            <td>运行记录、文章、追踪记录、积压状态</td>
+            <td><code>npm run engine:report</code></td>
+            <td><span class="tag ops">运维报告</span></td>
+            <td>生成生产报告，包含 qualityOverview、portfolioHealth、taxonomySummary。</td>
             <td><code>engine_reports</code></td>
-            <td>用于试运行日报和运维排查；含三层内容分类统计与未分类积压提示。</td>
-          </tr>
-        </tbody>
-      </table>
-    </section>
-
-    <section class="card">
-      <h2>4. 待办工作量评估</h2>
-      <p>以下估算按 1 名熟悉当前代码的人计算，单位是人日。它不是商业排期承诺，更像试运行前后的优先级地图。</p>
-      <table>
-        <thead>
-          <tr>
-            <th>事项</th>
-            <th>优先级</th>
-            <th>建议阶段</th>
-            <th>工作量</th>
-            <th>依赖</th>
-            <th>风险/收益</th>
-            <th>建议</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>轮换 RDS 密码与清理泄露痕迹</td>
-            <td><span class="tag p0">P0</span></td>
-            <td>试运行前</td>
-            <td>0.5-1</td>
-            <td>RDS 权限、环境变量更新</td>
-            <td>安全收益最高，风险最低。</td>
-            <td>立刻做。</td>
-          </tr>
-          <tr>
-            <td>修复旧追踪接口漏查 <code>article_version_id</code> 关联的 <code>model_runs</code></td>
-            <td><span class="tag p0">P0</span></td>
-            <td>试运行前</td>
-            <td>0.5</td>
-            <td>无</td>
-            <td>避免本地查看器和网页后台的调试信息不一致。</td>
-            <td>小修，适合马上合入。</td>
-          </tr>
-          <tr>
-            <td>节点分型：规则 / 模型 / 智能体 / 人工</td>
-            <td><span class="tag p0">P0</span></td>
-            <td>试运行前后</td>
-            <td>1-2</td>
-            <td>当前流水线清单</td>
-            <td>帮助控制成本，避免所有节点都升级成智能体。</td>
-            <td>先文档化，再落到配置表。</td>
-          </tr>
-          <tr>
-            <td>评估运行器最小版</td>
-            <td><span class="tag p0">P0</span></td>
-            <td>7 天试运行后</td>
-            <td>3-5</td>
-            <td>样例输入、期望规则、结构校验器</td>
-            <td>从体感调提示词变成可回归验证。</td>
-            <td>先做本地命令行，不急着做网页后台。</td>
-          </tr>
-          <tr>
-            <td>节点级评估样例首批 20-30 个</td>
-            <td><span class="tag p0">P0</span></td>
-            <td>7 天试运行后</td>
-            <td>2-4</td>
-            <td>试运行真实案例</td>
-            <td>质量护城河的起点。</td>
-            <td>从失败/打回/高分样例沉淀。</td>
-          </tr>
-          <tr>
-            <td>服务商 / 模型 / 成本 / 并发观测</td>
-            <td><span class="tag p1">P1</span></td>
-            <td>稳定试运行后</td>
-            <td>2-3</td>
-            <td><code>model_runs</code> 字段扩展或摘要字段补充</td>
-            <td>支撑单位经济模型和并发上限。</td>
-            <td>在接多客户前完成。</td>
-          </tr>
-          <tr>
-            <td>OpenClaw 执行器/接口化调研</td>
-            <td><span class="tag p1">P1</span></td>
-            <td>v1.1 技术预研</td>
-            <td>2-3</td>
-            <td>OpenClaw 接口能力、鉴权、错误模型</td>
-            <td>降低命令行子进程成本，但会引入服务治理。</td>
-            <td>先技术预研，不要直接迁移。</td>
-          </tr>
-          <tr>
-            <td>队列/执行器最小版</td>
-            <td><span class="tag p1">P1</span></td>
-            <td>多客户或并发前</td>
-            <td>5-8</td>
-            <td>任务生命周期、重试策略、锁</td>
-            <td>解决崩溃恢复、取消、并发水位。</td>
-            <td>用简单队列起步；Temporal 这类重型编排系统暂缓。</td>
-          </tr>
-          <tr>
-            <td>人工审批与客户验收视图</td>
-            <td><span class="tag p2">P2</span></td>
-            <td>v1.1/v1.2</td>
-            <td>3-6</td>
-            <td>正式网页后台或增强本地查看器</td>
-            <td>显著降低运营终审时间。</td>
-            <td>优先做“客户可看包”，不是复杂协作。</td>
-          </tr>
-          <tr>
-            <td>SaaS 租户/客户边界</td>
-            <td><span class="tag p1">P1</span></td>
-            <td>商业化前</td>
-            <td>8-15</td>
-            <td>数据模型扩展、权限模型</td>
-            <td>一旦上多客户就是硬需求。</td>
-            <td>单客户试运行不要做。</td>
-          </tr>
-          <tr>
-            <td>配额、计费、成本归因</td>
-            <td><span class="tag p1">P1</span></td>
-            <td>商业化前</td>
-            <td>5-10</td>
-            <td>成本观测、租户边界</td>
-            <td>决定服务能不能规模化。</td>
-            <td>等试运行成本数据出来再设计。</td>
-          </tr>
-          <tr>
-            <td>正式发布系统：Strapi/公众号/抖音</td>
-            <td><span class="tag p2">P2</span></td>
-            <td>v1.3+</td>
-            <td>8-20</td>
-            <td>发布权限、草稿箱、审核流</td>
-            <td>风险较高，涉及不可逆操作。</td>
-            <td>先只做草稿，不做自动发布。</td>
-          </tr>
-        </tbody>
-      </table>
-    </section>
-
-    <section class="card">
-      <h2>5. 线上产品形态建议</h2>
-      <div class="two-col">
-        <div>
-          <h3>推荐形态：业务系统调度流水线</h3>
-          <p>线上应把 ContentFlow 做成一个有控制面的内容生产服务，而不是把每日任务放进 OpenClaw 的内部定时任务。推荐组件是：</p>
-          <table>
-            <thead>
-              <tr>
-                <th>组件</th>
-                <th>职责</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>网页管理后台</td>
-                <td>看今日状态，触发 start（首次运行）、retry（重试）、rebuild（重建），处理人工终审。</td>
-              </tr>
-              <tr>
-                <td>业务定时器</td>
-                <td>每天固定时间调用运行接口或执行 <code>npm run engine:daily</code>。</td>
-              </tr>
-              <tr>
-                <td>运行控制接口</td>
-                <td>复用 daily_key 幂等逻辑，记录 <code>run_actions</code>。</td>
-              </tr>
-              <tr>
-                <td>引擎执行器</td>
-                <td>执行 <code>engine_batch</code> 或后续队列任务。</td>
-              </tr>
-              <tr>
-                <td>OpenClaw</td>
-                <td>只执行模型/智能体节点，不保存业务状态。</td>
-              </tr>
-              <tr>
-                <td>MySQL RDS</td>
-                <td>唯一运行态数据源，供网页后台和引擎共享。</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div>
-          <h3>不建议：OpenClaw 内部定时任务直接跑</h3>
-          <p>OpenClaw 内部定时任务看起来省事，但会把业务控制权放错地方。内容生产需要知道 daily_key、是否已有活跃运行、哪些文章被批准、重建时怎么归档、触发人是谁、失败如何审计。这些都属于业务系统职责。</p>
-          <div class="callout">
-            <strong>推荐答案：</strong>线上用外部定时器或云厂商定时器触发 ContentFlow 自己的运行接口或命令行；OpenClaw 继续作为执行层。定时器只负责“到点敲门”，是否真的开跑由 <code>run_control_lib</code> 决定。
-          </div>
-        </div>
-      </div>
-
-      <h3>最小线上部署路径</h3>
-      <table>
-        <thead>
-          <tr>
-            <th>阶段</th>
-            <th>形态</th>
-            <th>触发方式</th>
-            <th>适用场景</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>试运行</td>
-            <td>单台服务器 / 本机常驻代码 + RDS</td>
-            <td>系统定时任务执行 <code>npm run engine:daily</code></td>
-            <td>每天 1-3 篇，人工盯运行结果。</td>
-          </tr>
-          <tr>
-            <td>小规模生产</td>
-            <td>容器化引擎 + 网页管理后台 + RDS</td>
-            <td>云定时器或 Kubernetes 定时任务调用运行接口</td>
-            <td>需要可视化、报警、重试、多人查看。</td>
-          </tr>
-          <tr>
-            <td>多客户生产</td>
-            <td>接口控制面 + 队列 + 执行器池 + RDS</td>
-            <td>定时器只入队，执行器消费任务</td>
-            <td>需要并发水位、隔离、取消、崩溃恢复。</td>
           </tr>
         </tbody>
       </table>

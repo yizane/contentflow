@@ -10,6 +10,7 @@ const { loadPolicy, jaccard } = require('./production_policy_lib');
 const { trustOf } = require('./sources_lib');
 const config = require('./config_lib');
 const trace = require('./trace_lib');
+const sourceRelevance = require('./topic_source_relevance_lib');
 
 // 子进程通过环境变量关联到 engine run 的 workflow step
 function currentStepId() {
@@ -158,8 +159,9 @@ async function collectSources({ engineRunId }) {
 // ---------- 主题生成（含去重节流，写 topic_candidates）----------
 async function generateTopics({ engineRunId }) {
   await config.ensureInit();
-  const items = await my.query('SELECT source_group, source_name, source_url, title, summary, content_type, business_category FROM source_items ORDER BY created_at DESC LIMIT 60');
+  const items = await my.query('SELECT id, source_group, source_name, source_url, title, summary, content_type, business_category FROM source_items ORDER BY created_at DESC LIMIT 60');
   if (items.length === 0) return { ok: false, error: '没有 source_items，请先 collect:sources' };
+  const sourceByUrl = sourceRelevance.buildSourceUrlMap(items);
   const keywordsCsv = config.getKeywordsCsv();
 
   const recentForRepetition = (await my.query("SELECT title FROM articles WHERE status != 'archived' AND created_at >= DATE_SUB(NOW(3), INTERVAL 30 DAY) ORDER BY created_at DESC LIMIT 20")).map((x) => x.title);
@@ -188,21 +190,30 @@ async function generateTopics({ engineRunId }) {
   let inserted = 0;
   let duplicates = 0;
   let dedupeRejected = 0;
-  for (const c of r.data.candidates) {
+  let sourceRejected = 0;
+  for (const rawCandidate of r.data.candidates) {
+    const relevance = sourceRelevance.assessCandidateSourceRelevance(rawCandidate, sourceByUrl);
+    const c = sourceRelevance.applyCandidateSourceScoreGuard(rawCandidate, relevance);
+    const sourceItemIds = sourceRelevance.sourceIdsForCandidate(c, sourceByUrl);
     const norm = c.topic.replace(/\s+/g, '');
     const exists = await my.query('SELECT id FROM topic_candidates WHERE normalized_topic = ? LIMIT 1', [norm]);
     if (exists.length) { duplicates++; continue; }
 
     let rejection = null;
-    if (policy.topic_generation.reject_if_similar_topic_recent) {
+    let rejectionType = null;
+    if (c.rejected) {
+      rejection = c.reason;
+      rejectionType = 'source_relevance';
+    }
+    if (!rejection && policy.topic_generation.reject_if_similar_topic_recent) {
       for (const t of recentTopics) {
         const sim = jaccard(c.topic, t);
-        if (sim >= 0.55) { rejection = `近 ${d.normalized_topic_window_days} 天高相似主题（Jaccard ${sim.toFixed(2)}）: ${t.slice(0, 40)}`; break; }
+        if (sim >= 0.55) { rejection = `近 ${d.normalized_topic_window_days} 天高相似主题（Jaccard ${sim.toFixed(2)}）: ${t.slice(0, 40)}`; rejectionType = 'dedupe'; break; }
       }
     }
     if (!rejection) {
       const kwCount = (await my.query('SELECT COUNT(*) c FROM articles WHERE primary_keyword = ? AND created_at >= ?', [c.primaryKeyword, daysAgo(d.primary_keyword_window_days)]))[0].c;
-      if (kwCount >= d.max_articles_per_primary_keyword_in_window) rejection = `primary_keyword 近 ${d.primary_keyword_window_days} 天已 ${kwCount} 篇`;
+      if (kwCount >= d.max_articles_per_primary_keyword_in_window) { rejection = `primary_keyword 近 ${d.primary_keyword_window_days} 天已 ${kwCount} 篇`; rejectionType = 'dedupe'; }
     }
 
     // 内容分类：优先采用主题生成 AI 直出（继承/修正后的结果），缺失或非法时回退规则分类
@@ -221,7 +232,7 @@ async function generateTopics({ engineRunId }) {
     await my.insert('topic_candidates', {
       id: topicId, engine_run_id: engineRunId, topic: c.topic.slice(0, 510), normalized_topic: norm.slice(0, 510),
       primary_keyword: c.primaryKeyword, secondary_keywords_json: c.secondaryKeywords || [], category: c.category,
-      content_angle: c.contentAngle, business_angle: c.businessAngle, source_item_ids_json: [], source_urls_json: c.sourceUrls || [],
+      content_angle: c.contentAngle, business_angle: c.businessAngle, source_item_ids_json: sourceItemIds, source_urls_json: c.sourceUrls || [],
       score: Math.round(c.score), raw_score: Math.round(c.score),
       content_value_score: c.contentValueScore != null ? Math.round(c.contentValueScore) : null,
       value_breakdown_json: c.contentValueScore != null ? {
@@ -229,7 +240,7 @@ async function generateTopics({ engineRunId }) {
         businessFit: c.businessFit, nonRepetition: c.nonRepetition, sourceSupport: c.sourceSupport,
       } : null,
       priority: c.priority, status: rejection ? 'rejected' : 'candidate',
-      reject_reason: rejection ? `[dedupe] ${rejection}` : c.rejectRisk || null,
+      reject_reason: rejection ? `[${rejectionType || 'dedupe'}] ${rejection}` : c.rejectRisk || null,
       content_type: cls ? cls.contentType : null, business_category: cls ? cls.businessCategory : null,
       topic_cluster: cls ? cls.topicCluster : null,
       classification_confidence: cls ? cls.confidence : null, classification_reason: cls ? cls.reason : null,
@@ -242,17 +253,18 @@ async function generateTopics({ engineRunId }) {
         confidence: cls.confidence, reason: cls.reason, classifier_type: clsBy, model_run_id: null, raw_json: null, created_at: now,
       });
     }
-    if (rejection) dedupeRejected++;
+    if (rejection && rejectionType === 'source_relevance') sourceRejected++;
+    else if (rejection) dedupeRejected++;
     else inserted++;
     await trace.logWorkflowEvent({
       engineRunId, workflowStepId: currentStepId(),
       eventType: rejection ? 'topic_candidate_rejected' : 'topic_candidate_created',
       level: rejection ? 'warning' : 'info',
-      message: rejection ? `候选被去重拒绝: ${c.topic.slice(0, 50)}（${rejection.slice(0, 80)}）` : `候选入池: ${c.topic.slice(0, 50)}（${c.score} 分）`,
-      relatedType: 'topic_candidate', data: { score: c.score, priority: c.priority },
+      message: rejection ? `候选被拒绝: ${c.topic.slice(0, 50)}（${rejection.slice(0, 80)}）` : `候选入池: ${c.topic.slice(0, 50)}（${c.score} 分）`,
+      relatedType: 'topic_candidate', data: { score: c.score, priority: c.priority, rejection_type: rejectionType, source_item_ids: sourceItemIds },
     });
   }
-  return { ok: true, inserted, duplicates, dedupeRejected, warnings: validation.warnings.slice(0, 10) };
+  return { ok: true, inserted, duplicates, dedupeRejected, sourceRejected, warnings: validation.warnings.slice(0, 10) };
 }
 
 // ---------- 文章 job ----------
