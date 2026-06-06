@@ -39,6 +39,7 @@ async function main() {
     ['sources_yaml', 'yaml_doc', 'config/sources.yaml'],
     ['keywords_csv', 'yaml_doc', 'config/keywords.csv'],
     ['content_taxonomy', 'yaml_doc', 'config/content_taxonomy.yaml'],
+    ['content_portfolio', 'yaml_doc', 'config/content_portfolio.yaml'],
   ];
   for (const f of fs.readdirSync(path.join(ROOT, 'prompts')).filter((x) => x.endsWith('.md'))) docs.push([`prompt:${f}`, 'prompt', `prompts/${f}`]);
   for (const f of fs.readdirSync(path.join(ROOT, 'schemas')).filter((x) => x.endsWith('.json'))) docs.push([`schema:${f}`, 'schema', `schemas/${f}`]);

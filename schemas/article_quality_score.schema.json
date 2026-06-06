@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyfus-content-agent/article_quality_score.schema.json",
+  "title": "Flyfus Article Quality Score Output",
+  "description": "文章质量主评分契约。articleQualityScore >= 80 才能进入 ready_for_review；SEO/GEO 不能覆盖此评分。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["articleQualityScore", "breakdown", "strengths", "issues", "mustFix", "niceToHave", "qualityRecommendation"],
+  "properties": {
+    "articleQualityScore": { "type": "number", "minimum": 0, "maximum": 100 },
+    "breakdown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sellerPainFit", "actionability", "informationGain", "originality", "clarity", "evidenceUse", "businessUsefulness"],
+      "properties": {
+        "sellerPainFit": { "type": "number", "minimum": 0, "maximum": 20 },
+        "actionability": { "type": "number", "minimum": 0, "maximum": 20 },
+        "informationGain": { "type": "number", "minimum": 0, "maximum": 20 },
+        "originality": { "type": "number", "minimum": 0, "maximum": 10 },
+        "clarity": { "type": "number", "minimum": 0, "maximum": 10 },
+        "evidenceUse": { "type": "number", "minimum": 0, "maximum": 10 },
+        "businessUsefulness": { "type": "number", "minimum": 0, "maximum": 10 }
+      }
+    },
+    "strengths": { "type": "array", "items": { "type": "string" } },
+    "issues": { "type": "array", "items": { "type": "string" } },
+    "mustFix": { "type": "array", "items": { "type": "string" } },
+    "niceToHave": { "type": "array", "items": { "type": "string" } },
+    "qualityRecommendation": { "type": "string", "enum": ["excellent", "good", "revise", "reject"] }
+  }
+}

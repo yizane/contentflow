@@ -24,8 +24,11 @@
     "score:seo-geo": "node scripts/pipeline/score_seo_geo.js",
     "articles:revise": "node scripts/pipeline/articles_revise.js",
     "content:classify": "node scripts/pipeline/content_classify.js",
+    "topic:audition": "node scripts/pipeline/topic_audition.js",
+    "score:article-quality": "node scripts/pipeline/articles_quality_score.js",
     "package:export": "node scripts/pipeline/package_export.js",
     "review:mark": "node scripts/pipeline/review_mark.js",
+    "keywords:analyze": "node scripts/tools/keywords_analyze.js",
     "config:sync": "node scripts/tools/config_sync.js",
     "viewer": "node scripts/view_server.js"
   },

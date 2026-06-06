@@ -19,6 +19,7 @@
     article_validated:   { text: "已过质量门", tone: "ok" },
     validation_failed:   { text: "校验失败",   tone: "bad" },
     needs_fact_sources:  { text: "待补来源",   tone: "warn" },
+    needs_quality_revision: { text: "质量待修订", tone: "warn" },
     fact_checked:        { text: "已核查",     tone: "ok" },
     ready_for_review:    { text: "待终审",     tone: "warn" },
     reviewed:            { text: "已复审",     tone: "ok" },
@@ -50,6 +51,7 @@
     selected:  { text: "已选中", tone: "brand" },
     generated: { text: "已生成", tone: "ok" },
     rejected:  { text: "被拒", tone: "mut" },
+    deferred:  { text: "延期", tone: "warn" },
   };
   const topicStatus = (s) => TOPIC_STATUS[s] || { text: s || "未知", tone: "mut" };
 
@@ -125,7 +127,17 @@
       if (h) { flushPara(); closeList(); closeQuote(); out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`); continue; }
       if (/^(\*{3,}|-{3,})\s*$/.test(line.trim())) { flushPara(); closeList(); closeQuote(); out.push("<hr>"); continue; }
       const q2 = line.match(/^&gt;\s?(.*)$/);
-      if (q2) { flushPara(); closeList(); if (!inQuote) { out.push("<blockquote>"); inQuote = true; } out.push(inline(q2[1]) + "<br>"); continue; }
+      if (q2) {
+        flushPara(); closeList();
+        // 配图占位标记 → 视觉占位卡片样式
+        if (/[\[［]配图建议/.test(q2[1]) && !inQuote) {
+          out.push(`<div class="visual-placeholder">🖼 ${inline(q2[1])}</div>`);
+          continue;
+        }
+        if (!inQuote) { out.push("<blockquote>"); inQuote = true; }
+        out.push(inline(q2[1]) + "<br>");
+        continue;
+      }
       closeQuote();
       const ul = line.match(/^\s*[-*]\s+(.*)$/);
       if (ul) { flushPara(); if (inList !== "ul") { closeList(); out.push("<ul>"); inList = "ul"; } out.push(`<li>${inline(ul[1])}</li>`); continue; }
@@ -207,6 +219,7 @@
     KEYWORDS: [], CONFIG_SOURCES: [], POLICIES: [],
     COUNTS: { readyForReview: 0, needsFactSources: 0 }, CHRONIC: [],
     TAXONOMY: { contentTypes: {}, businessCategories: {}, topicClusters: {} },
+    PORTFOLIO: { deferredCount: 0, deferred: [], lastSelected: [] },
     LOADED: false,
 
     // 分类中文标签（kind: contentTypes | businessCategories | topicClusters）
@@ -234,6 +247,7 @@
       FLY.COUNTS = b.counts || { readyForReview: 0, needsFactSources: 0 };
       FLY.CHRONIC = b.chronicSources || [];
       FLY.TAXONOMY = b.taxonomy || { contentTypes: {}, businessCategories: {}, topicClusters: {} };
+      FLY.PORTFOLIO = b.portfolio || { deferredCount: 0, deferred: [], lastSelected: [] };
       FLY.LOADED = true;
       return FLY;
     },
@@ -284,6 +298,15 @@
     },
     toggleConfig(kind, id, enabled) {
       return post(`/api/config/${kind}/${encodeURIComponent(id)}/toggle`, { enabled });
+    },
+
+    async loadAuditions() {
+      const r = await api("/api/topic-auditions?limit=5");
+      return (r.auditions || []).map((a) => ({ ...a, created: fmtDT(a.created) }));
+    },
+    async loadAudition(id) {
+      const r = await api(`/api/topic-auditions/${encodeURIComponent(id)}`);
+      return r.audition;
     },
 
     _docCache: {},

@@ -57,3 +57,41 @@ trace 写入失败不会中断主流程（计数 + console.warn），engine run 
 - `engine:report` 输出 contentTypeCounts / businessCategoryCounts / topicClusterCounts、source 多但文章少的类别、按业务分类的待补来源积压。
 
 回填命令：`npm run content:classify -- --all --limit 500`（支持 `--entity`、`--force`、`--no-ai`、`--max-ai-calls`）。
+
+## Topic Portfolio Balancer（Phase 12B）
+
+选题逻辑从「谁分最高选谁」变为「**谁在当前内容组合里最值得选，选谁**」：
+
+- `raw_score`：AI 对选题质量的评分（topic_score 产出，不考虑重复度）
+- `selection_score = raw_score − 饱和惩罚 + 组合奖励`（`config/content_portfolio.yaml`）
+  - 惩罚：主题簇/业务分类饱和、关键词 14 天内已用、标题/选题语义相似（中文 2-gram Jaccard 双通道）
+  - 奖励：欠代表业务分类、PPC/选品/意图词专项、首篇主题簇、P0 契合、时效型内容
+- **硬配额优先于 raw_score**：簇配额（默认 14 天 1 篇 / 30 天 2 篇）、分类配额（7d/14d 上限）触顶 → 候选 **deferred**（写 `deferred_until`，窗口期后自动回池），**不是 rejected**（rejected 仅用于低质/高风险/无业务价值）
+- 批内多样性：limit > 1 时同 topic_cluster 不重复
+- 每个决策（扣分/加分/跳过原因）写 `topic_candidates.portfolio_debug_json` + `workflow_events`（topic_candidate_selected / skipped_quota / skipped_duplicate），dry-run 可解释输出，监控台「组合决策」面板可见
+- 生成侧约束：topic_generator 要求每批候选覆盖 ≥4 个业务分类，AI Shopping + Listing GEO ≤ 40%
+- 关键词库体检：`npm run keywords:analyze`（占比/P0 分布/认知型词告警）
+
+## 内容价值分与 Topic Audition（Phase 12D）
+
+**质量优先**：文章质量优先级高于 SEO/GEO。`content_value_score`（满分 100，SEO/GEO 不参与）判断「值不值得写」：
+sellerPainValue 20 / actionability 20 / informationGain 20 / businessFit 15 / nonRepetition 15 / sourceSupport 10。
+
+最终选择公式：`selection_score = content_value_score × 0.55 + raw_score × 0.25 + 组合奖励 − 饱和惩罚`。
+门槛：价值分 < 75 不选（skipped_low_value，留池）；痛点+可执行性 < 22 不选；来源支撑 < 4 defer。
+新生成候选由 topic_generator 直接输出价值分；存量候选由 `ensureValueScores` AI 批量补分（启发式兜底）。
+
+**Topic Audition（选题压力测试）**：`npm run topic:audition -- --rounds 10 --limit 3 [--refresh-candidates] [--json]`
+模拟未来 N 轮选题（真实文章窗口滑动 + 模拟选中累积 + deferred 到期回池），不生成文章。
+回答：未来会写什么 / 分类是否均衡 / 有没有用 / 有没有重复 / 哪些缺口 / 能否开始生成。
+结果写 `topic_audition_runs` / `topic_audition_items`，Viewer 选题池页与 GET /api/topic-auditions 可见。
+
+## 文章质量主评分 + 视觉规划（Phase 13）
+
+**主从关系**：`article_quality_score`（主评分，7 维满分 100）>= 80 才能进 ready_for_review；SEO/GEO 降为建议线（< 70 给优化建议但不拦发布）；事实可靠性仍是底线。质量分不足时事实核查会把文章导向 `needs_quality_revision` 而非终审；review_mark / Viewer 终审同样有守卫。
+
+评分维度：sellerPainFit 20 / actionability 20 / informationGain 20 / originality 10 / clarity 10 / evidenceUse 10 / businessUsefulness 10。类型特判：趋势类必须写卖家操作影响；干货类必须有步骤/清单；快讯必须有卖家影响+下一步。
+
+**视觉规划（visualPlan）**：文章生成/修订必须输出 ≥2 个视觉规划（id/placement/visualType/title/purpose/description/caption/altText/imagePrompt/required），正文插 `> [配图建议 visual_N：…]` 占位。系统只存规划不生成图片、不存二进制；操作指南配 process_flow/checklist_card，趋势配 comparison_chart/diagram。Viewer 详情页「视觉规划」Tab 可逐条查看并复制生图提示。
+
+命令：`npm run score:article-quality -- --status ready_for_review | --article-id <id> [--force]`

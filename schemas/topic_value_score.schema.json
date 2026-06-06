@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyfus-content-agent/topic_value_score.schema.json",
+  "title": "Flyfus Topic Content Value Score Output",
+  "description": "选题内容价值评分契约（独立于 SEO/GEO）。批量输出 array，每元素带 index。",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["index", "sellerPainValue", "actionability", "informationGain", "businessFit", "nonRepetition", "sourceSupport", "contentValueScore", "reason"],
+    "properties": {
+      "index": { "type": "number" },
+      "sellerPainValue": { "type": "number", "minimum": 0, "maximum": 20 },
+      "actionability": { "type": "number", "minimum": 0, "maximum": 20 },
+      "informationGain": { "type": "number", "minimum": 0, "maximum": 20 },
+      "businessFit": { "type": "number", "minimum": 0, "maximum": 15 },
+      "nonRepetition": { "type": "number", "minimum": 0, "maximum": 15 },
+      "sourceSupport": { "type": "number", "minimum": 0, "maximum": 10 },
+      "contentValueScore": { "type": "number", "minimum": 0, "maximum": 100 },
+      "reason": { "type": "string", "minLength": 4 }
+    }
+  }
+}

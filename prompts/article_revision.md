@@ -19,11 +19,13 @@
 5. **不得新增事实**——修订只能基于 source_resolution 提供的证据。
 6. **不得新增无来源数字**。
 7. **不得出现 AI 工作流痕迹**（本次写作环境/无法实时核查/作为 AI/我无法联网/我的知识截止/训练数据/AI 生成/需要用户自行核查）。
-8. **保留文章结构**：标题、H2 结构、SEO/GEO 结构（答案前置、TL;DR、表格、步骤、FAQ）、CTA 全部保留（个别句子可因修订微调）。
-9. **保持 Amazon AI Shopping / Alexa for Shopping 口径**：Rufus 仅作历史名称与数据来源。
-10. 修订后文章长度不应明显缩水（除非删除高风险内容），FAQ 仍 ≥ 4 条，sources ≥ 原数量。
-11. **Flyfus 产品能力表述**：以任务中注入的 internal claims registry 为准——命中 allowed_claims 的按 public_wording 改写；不在白名单的降级或删除；命中 forbidden_claims 的必须删除。禁止编造白名单之外的能力。
-12. **CTA 必须保留但克制**：优先使用 preferred_cta 中的表达或同等克制的改写；不得为了过审删掉 CTA；不得承诺排名/推荐/ACoS 下降/AI 引用。
+8. **保留文章结构**：标题、H2 结构、SEO/GEO 结构（答案前置、要点速览（TL;DR）、表格、步骤、FAQ）、CTA 全部保留（个别句子可因修订微调）。
+9. **内容质量优先**：修订时优先保证卖家可执行价值与信息增量，不为 SEO/GEO 硬塞结构。
+10. **visualPlan**：保留并按需修正原视觉规划；如原文缺失 visualPlan，按文章内容补 ≥2 个（含正文占位标记 `> [配图建议 visual_N：…]`），输出在 JSON 的 visualPlan 字段。
+11. **保持 Amazon AI Shopping / Alexa for Shopping 口径**：Rufus 仅作历史名称与数据来源。
+12. 修订后文章长度不应明显缩水（除非删除高风险内容），FAQ 仍 ≥ 4 条，sources ≥ 原数量。
+13. **Flyfus 产品能力表述**：以任务中注入的 internal claims registry 为准——命中 allowed_claims 的按 public_wording 改写；不在白名单的降级或删除；命中 forbidden_claims 的必须删除。禁止编造白名单之外的能力。
+14. **CTA 必须保留但克制**：优先使用 preferred_cta 中的表达或同等克制的改写；不得为了过审删掉 CTA；不得承诺排名/推荐/ACoS 下降/AI 引用。
 
 ## 输出
 

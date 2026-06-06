@@ -43,10 +43,16 @@ async function exportArticle(article, opts, warnings) {
   const srStats = await my.query('SELECT resolved_status, COUNT(*) c FROM source_resolutions WHERE article_id = ? AND article_version_id = ? GROUP BY resolved_status', [article.id, ver.id]);
 
   const ready = article.status === 'ready_for_review' && channelStatus.ready;
+  const visualPlan = my.asJson(ver.visual_plan_json) || (my.asJson(ver.article_json) || {}).visualPlan || [];
+  const articleQuality = my.asJson(ver.article_quality_json) || null;
   const metadata = {
     articleId: article.id, title: article.title, slug: article.slug, status: article.status,
     contentType: article.content_type || null, businessCategory: article.business_category || null,
     topicCluster: article.topic_cluster || null,
+    articleQualityScore: article.article_quality_score ?? null,
+    visualPlanCount: visualPlan.length,
+    requiredVisuals: visualPlan.filter((v) => v.required).length,
+    hasVisualPlan: visualPlan.length > 0,
     primaryKeyword: article.primary_keyword, qualityScore: article.quality_score,
     publishRecommendation: article.publish_recommendation, factOverallRisk: article.fact_overall_risk,
     factPublishReadiness: article.fact_publish_readiness,
@@ -65,6 +71,14 @@ async function exportArticle(article, opts, warnings) {
 - 渠道: ${existingChannels.join(' / ') || '（无）'}${missingChannels.length ? `　缺失: ${missingChannels.join('/')}` : ' ✅'}
 - **可进入人工终审**: ${ready ? '✅' : `❌（${article.status}${missingChannels.length ? '，渠道不全' : ''}）`}
 ${missingChannels.length ? `\n> 渠道不全：仍可用于官网文章，但不算完整多渠道发布包。补齐：\`${metadata.suggestedCommand}\`\n` : ''}
+## 文章质量主评分
+
+${article.article_quality_score != null ? `**${article.article_quality_score}/100**（${articleQuality ? articleQuality.qualityRecommendation : '-'}）${article.article_quality_score < 80 ? ' ⚠️ 低于 80，不得进入终审/发布' : ' ✅'}` : '（未评分：npm run score:article-quality -- --article-id ' + article.id + '）'}
+
+## 视觉规划（发布前${visualPlan.length ? '需按以下 brief 补图' : '⚠️ 缺失视觉规划'}）
+
+${visualPlan.length ? visualPlan.map((v, i) => `${i + 1}. **[${v.visualType}] ${v.title}**（${v.placement}${v.required ? '，必需' : ''}）\n   - 用途: ${v.purpose}\n   - brief: ${v.description}\n   - caption: ${v.caption}\n   - alt: ${v.altText}\n   - 生图提示: ${v.imagePrompt}`).join('\n') : '- 无（旧版本文章；修订时会补全）'}
+
 ## 仍需人工检查项
 
 ${mustFix.length ? mustFix.map((m, i) => `${i + 1}. ${m}`).join('\n') : '（无遗留 mustFix）'}
@@ -81,6 +95,8 @@ ${mustFix.length ? mustFix.map((m, i) => `${i + 1}. ${m}`).join('\n') : '（无�
     article_markdown: ver.article_markdown, article_json: my.asJson(ver.article_json),
     quality_json: my.asJson(ver.quality_json), fact_check_json: my.asJson(ver.fact_check_json),
     source_resolution_json: my.asJson(ver.source_resolution_json), channels_json: channelsJson,
+    visual_plan_json: visualPlan.length ? visualPlan : null,
+    article_quality_json: articleQuality,
     ready_for_publish_package: ready ? 1 : 0, updated_at: now,
   };
   let pkgId;

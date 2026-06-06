@@ -20,7 +20,7 @@ function parseArgs(argv) {
 async function main() {
   const args = parseArgs(process.argv);
   try {
-    let sql = 'SELECT id, created_at, title, primary_keyword, status, quality_score, seo_score, geo_score, fact_publish_readiness, slug, current_version_id, content_type, business_category, topic_cluster FROM articles';
+    let sql = 'SELECT id, created_at, title, primary_keyword, status, quality_score, article_quality_score, seo_score, geo_score, fact_publish_readiness, slug, current_version_id, content_type, business_category, topic_cluster FROM articles';
     const where = [];
     const params = [];
     if (args.status) { where.push('status = ?'); params.push(args.status); }
@@ -44,11 +44,11 @@ async function main() {
       const str = String(s ?? '-');
       return str.length > n ? str.slice(0, n - 1) + '…' : str;
     };
-    const scoreCols = args.withScores ? ['SEO'.padEnd(4), 'GEO'.padEnd(4)] : [];
+    const scoreCols = args.withScores ? ['artQ'.padEnd(5), 'SEO'.padEnd(4), 'GEO'.padEnd(4)] : [];
     console.log(['created_at'.padEnd(20), 'title'.padEnd(30), 'status'.padEnd(20), 'score', ...scoreCols, 'content_type'.padEnd(16), 'biz_category'.padEnd(18), 'readiness'.padEnd(20), 'slug'].join('  '));
     console.log('-'.repeat(170));
     for (const r of rows) {
-      const scoreVals = args.withScores ? [String(r.seo_score ?? '-').padEnd(4), String(r.geo_score ?? '-').padEnd(4)] : [];
+      const scoreVals = args.withScores ? [String(r.article_quality_score ?? '-').padEnd(5), String(r.seo_score ?? '-').padEnd(4), String(r.geo_score ?? '-').padEnd(4)] : [];
       console.log([cut(String(r.created_at), 20).padEnd(20), cut(r.title, 30).padEnd(30), cut(r.status, 20).padEnd(20), String(r.quality_score ?? '-').padEnd(5), ...scoreVals, cut(r.content_type, 16).padEnd(16), cut(r.business_category, 18).padEnd(18), cut(r.fact_publish_readiness, 20).padEnd(20), r.slug || '-'].join('  '));
     }
     console.log(`\n共 ${rows.length} 条（--json / --status <s> / --content-type <t> / --business-category <c> / --topic-cluster <tc> / --with-scores / --limit <n>）`);

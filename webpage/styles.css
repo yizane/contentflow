@@ -367,3 +367,11 @@ a.link:hover { text-decoration: underline; }
   .pipe-card .pc-summary { min-height: 0 !important; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pipe-conn { display: none; }
 }
+
+/* 文章内配图占位标记 */
+.prose .visual-placeholder {
+  margin: 18px 0; padding: 14px 16px;
+  border: 1.5px dashed var(--brand-300); border-radius: 10px;
+  background: var(--brand-50); color: var(--brand-700);
+  font-size: 13px; font-weight: 600; line-height: 1.6;
+}

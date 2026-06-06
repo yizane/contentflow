@@ -29,14 +29,14 @@ const OUTPUT_RULE = `## 输出方式（必须遵守）
 - 不要保存到 ~/.openclaw/workspace 或其他路径`;
 
 // 候选主题生成
-function topicGenerationPrompt({ sourceItems, keywordsCsv }) {
+function topicGenerationPrompt({ sourceItems, keywordsCsv, recentTopics = [] }) {
   const prompt = readPrompt('topic_generator.md');
   const schema = readSchema('topic_candidates.schema.json');
   const taxonomy = require('./taxonomy_lib').taxonomyPromptBlock();
   const list = sourceItems
     .map((i, n) => `${n + 1}. [${i.source_group}/${i.source_name}] ${i.title}\n   url: ${i.source_url}${i.summary ? `\n   summary: ${String(i.summary).slice(0, 150)}` : ''}${i.content_type ? `\n   分类: ${i.content_type} / ${i.business_category || '-'}` : ''}`)
     .join('\n');
-  return `# 任务：生成 Flyfus 候选主题池\n\n${prompt.trim()}\n\n---\n\n## 输入 1：最新采集 source items（${sourceItems.length} 条）\n\n${list}\n\n---\n\n## 输入 2：关键词库（primaryKeyword 必须从这里选）\n\n\`\`\`csv\n${keywordsCsv}\n\`\`\`\n\n---\n\n## 输入 3：内容分类枚举（每个候选必须输出 contentType / businessCategory / topicCluster，从以下枚举选；source 的分类可继承也可根据选题角度修正）\n\n${taxonomy}\n\n---\n\n## 输出 Schema\n\n\`\`\`json\n${schema}\n\`\`\`\n\n---\n\n${OUTPUT_RULE}`;
+  return `# 任务：生成 Flyfus 候选主题池\n\n${prompt.trim()}\n\n---\n\n## 输入 1：最新采集 source items（${sourceItems.length} 条）\n\n${list}\n\n---\n\n## 输入 2：关键词库（primaryKeyword 必须从这里选）\n\n\`\`\`csv\n${keywordsCsv}\n\`\`\`\n\n---\n\n## 输入 2.5：近期已写主题（nonRepetition 评分依据；与这些重复/换壳的候选 nonRepetition ≤ 5）\n\n${recentTopics.length ? recentTopics.map((t, i) => `${i + 1}. ${t}`).join('\n') : '（暂无）'}\n\n---\n\n## 输入 3：内容分类枚举（每个候选必须输出 contentType / businessCategory / topicCluster，从以下枚举选；source 的分类可继承也可根据选题角度修正）\n\n${taxonomy}\n\n---\n\n## 输出 Schema\n\n\`\`\`json\n${schema}\n\`\`\`\n\n---\n\n${OUTPUT_RULE}`;
 }
 
 // 文章生成（job）
@@ -398,4 +398,92 @@ ${schema}
 - 不要 Markdown code fence，不要解释文字，不要写任何文件`;
 }
 
-module.exports = { topicGenerationPrompt, articleJobPrompt, factCheckPrompt, channelsPrompt, sourceResolutionPrompt, revisionPrompt, scorePrompt, searchCollectPrompt, classificationPrompt, OUTPUT_RULE };
+// 选题内容价值评分（批量；独立于 SEO/GEO）
+function valueScorePrompt({ items, recentTopics = [] }) {
+  const prompt = readPrompt('topic_value_score.md');
+  const schema = readSchema('topic_value_score.schema.json');
+  const list = items.map((it) => {
+    const lines = [`${it.index}. topic: ${it.topic}`];
+    if (it.contentAngle) lines.push(`   contentAngle: ${String(it.contentAngle).slice(0, 160)}`);
+    if (it.businessAngle) lines.push(`   businessAngle: ${String(it.businessAngle).slice(0, 100)}`);
+    if (it.primaryKeyword) lines.push(`   primaryKeyword: ${it.primaryKeyword}`);
+    if (it.sourceUrlCount != null) lines.push(`   可用来源数: ${it.sourceUrlCount}`);
+    return lines.join('\n');
+  }).join('\n');
+  return `# 任务：选题内容价值评分（${items.length} 条）
+
+${prompt.trim()}
+
+---
+
+## 近期已写主题（nonRepetition 评分依据）
+
+${recentTopics.length ? recentTopics.map((t, i) => `${i + 1}. ${t}`).join('\n') : '（暂无）'}
+
+---
+
+## 待评分候选
+
+${list}
+
+---
+
+## 输出 Schema
+
+\`\`\`json
+${schema}
+\`\`\`
+
+---
+
+## 输出方式（必须遵守）
+
+把完整结果 JSON array 直接输出到你的回复中：
+- 只输出一个 JSON array，第一字符是 [，最后字符是 ]
+- 每个元素带 index（对应输入编号）
+- 不要 Markdown code fence，不要解释文字，不要写任何文件`;
+}
+
+// 文章质量主评分（SEO/GEO 不参与；>=80 才能进终审）
+function articleQualityPrompt({ article, articleMarkdown, contentType, recentTitles = [], visualPlan = null }) {
+  const prompt = readPrompt('article_quality_evaluator.md');
+  const schema = readSchema('article_quality_score.schema.json');
+  return `# 任务：文章质量主评分（article: ${article.id}）
+
+${prompt.trim()}
+
+---
+
+## 文章信息
+
+- 标题: ${article.title}
+- 内容类型: ${contentType || article.content_type || '（未分类）'}
+- 业务分类: ${article.business_category || '-'}
+- visualPlan: ${visualPlan && visualPlan.length ? `${visualPlan.length} 个视觉规划` : '（缺失——clarity/actionability 酌情扣分）'}
+
+## 近期已发文章标题（重复判断依据）
+
+${recentTitles.length ? recentTitles.map((t, i) => `${i + 1}. ${t}`).join('\n') : '（暂无）'}
+
+## 文章全文
+
+<article>
+
+${articleMarkdown.trim()}
+
+</article>
+
+---
+
+## 输出 Schema
+
+\`\`\`json
+${schema}
+\`\`\`
+
+---
+
+${OUTPUT_RULE}`;
+}
+
+module.exports = { topicGenerationPrompt, articleJobPrompt, factCheckPrompt, channelsPrompt, sourceResolutionPrompt, revisionPrompt, scorePrompt, searchCollectPrompt, classificationPrompt, valueScorePrompt, articleQualityPrompt, OUTPUT_RULE };

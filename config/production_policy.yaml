@@ -5,6 +5,12 @@ dedupe:
   slug_window_days: 90
   primary_keyword_window_days: 14
   max_articles_per_primary_keyword_in_window: 2
+  # 主题簇/业务分类节流：同簇 14 天最多 1 篇，同业务分类 7 天最多 3 篇
+  # （关键词级节流认「字面」，簇级节流认「主题」——防止换关键词绕过）
+  topic_cluster_window_days: 14
+  max_articles_per_topic_cluster_in_window: 1
+  business_category_window_days: 7
+  max_articles_per_business_category_in_window: 3
 
 topic_generation:
   reject_if_similar_topic_recent: true

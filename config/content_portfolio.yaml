@@ -1,0 +1,109 @@
+# 内容组合策略 — Topic Portfolio Balancer
+# 选题从「谁分最高选谁」变成「谁在当前内容组合里最值得选，选谁」。
+# raw_score = AI 对选题质量的评分（不变）；selection_score = raw_score - 饱和惩罚 + 组合奖励。
+version: 1
+
+selection_policy:
+  mode: "portfolio_balanced"
+  raw_score_min: 80
+  default_limit: 1
+  explain_every_decision: true
+
+# 各业务分类的目标占比与硬配额（target_share 用于欠代表奖励，max_* 是硬上限）
+business_category_targets:
+  amazon_ai_shopping:
+    target_share: 0.15
+    max_articles_7d: 2
+    max_articles_14d: 3
+  listing_geo:
+    target_share: 0.10
+    max_articles_7d: 1
+    max_articles_14d: 2
+  ppc_acos:
+    target_share: 0.20
+    max_articles_7d: 2
+    max_articles_14d: 4
+  product_research:
+    target_share: 0.20
+    max_articles_7d: 2
+    max_articles_14d: 4
+  keyword_intent:
+    target_share: 0.15
+    max_articles_7d: 2
+    max_articles_14d: 3
+  review_qa:
+    target_share: 0.08
+    max_articles_7d: 1
+    max_articles_14d: 2
+  account_compliance:
+    target_share: 0.05
+    max_articles_7d: 1
+    max_articles_14d: 2
+  fba_inventory:
+    target_share: 0.03
+    max_articles_7d: 1
+    max_articles_14d: 1
+  brand_growth:
+    target_share: 0.02
+    max_articles_7d: 1
+    max_articles_14d: 1
+  ai_tools:
+    target_share: 0.02
+    max_articles_7d: 1
+    max_articles_14d: 1
+  marketplace_policy:
+    target_share: 0.05
+    max_articles_7d: 1
+    max_articles_14d: 2
+
+# 主题簇硬配额（比业务分类更细一层）
+topic_cluster_limits:
+  default:
+    max_articles_14d: 1
+    max_articles_30d: 2
+  alexa_for_shopping_listing:
+    max_articles_14d: 1
+    max_articles_30d: 2
+  listing_semantic_structure:
+    max_articles_14d: 1
+    max_articles_30d: 2
+  rufus_question_data:
+    max_articles_14d: 1
+    max_articles_30d: 2
+  ppc_intent_keywords:
+    max_articles_14d: 2
+    max_articles_30d: 4
+  product_opportunity_mining:
+    max_articles_14d: 2
+    max_articles_30d: 4
+
+# 扣分项（写入 portfolio_debug_json，dry-run 可见）
+penalties:
+  topic_cluster_saturation_14d: 40
+  topic_cluster_saturation_30d: 25
+  business_category_saturation_7d: 25
+  business_category_saturation_14d: 15
+  primary_keyword_recent_14d: 20
+  similar_title: 25
+  similar_normalized_topic: 30
+
+# 加分项
+bonuses:
+  underrepresented_business_category: 15
+  fresh_source_policy_update: 8
+  high_business_fit: 8
+  first_article_in_topic_cluster: 10
+  ppc_acos_boost_if_underrepresented: 10
+  product_research_boost_if_underrepresented: 10
+  keyword_intent_boost_if_underrepresented: 8
+
+# 高分但近期重复 → deferred（窗口过后自动回到可选池），不是 rejected
+defer_policy:
+  use_deferred_status: true
+  default_defer_days: 14
+
+# 组合健康度告警阈值（engine_report / keywords:analyze 使用）
+diagnostics:
+  warn_if_category_share_above: 0.45
+  warn_if_cluster_share_above: 0.35
+  warn_if_p0_keywords_category_share_above: 0.40

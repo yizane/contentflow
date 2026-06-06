@@ -7,6 +7,11 @@ const DEFAULTS = {
     slug_window_days: 90,
     primary_keyword_window_days: 14,
     max_articles_per_primary_keyword_in_window: 2,
+    // 主题簇/业务分类级节流：防止换关键词、换说法但同主题的文章连续产出（Phase 12 分类体系支撑）
+    topic_cluster_window_days: 14,
+    max_articles_per_topic_cluster_in_window: 1,
+    business_category_window_days: 7,
+    max_articles_per_business_category_in_window: 3,
   },
   topic_generation: {
     reject_if_similar_topic_recent: true,

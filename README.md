@@ -44,7 +44,10 @@ npm run review:mark -- --article-id <id> --status approved_for_publish
 npm run engine:report
 npm run db:list -- --with-scores
 npm run content:classify -- --all --limit 100         # 内容分类回填（规则 + AI）
+npm run topic:audition -- --rounds 10 --limit 3        # 选题压力测试：模拟未来 N 轮选什么（不生成文章）
+npm run keywords:analyze                               # 关键词库分布体检
 npm run db:list -- --business-category listing_geo     # 按业务分类筛选
+npm run score:article-quality -- --status ready_for_review  # 文章质量主评分（>=80 才能进终审）
 ```
 
 ## Daily Run Control
@@ -63,7 +66,7 @@ npm run db:list -- --business-category listing_geo     # 按业务分类筛选
 - `business_category`：业务主题（Listing GEO / 广告 PPC / 选品 / 账号合规 …，共 11 类）
 - `topic_cluster`：主题簇（更细的内容专题，共 6 簇，归属于某个 business_category）
 
-定义在 `config/content_taxonomy.yaml`；采集内容、选题、文章统一使用；分类 = 规则（confidence ≥ 0.85 直接采用）+ OpenClaw AI 兜底，结果连同 confidence/reason 写 MySQL（`content_classifications` 审计）。中文源不会只因语言被归为新闻快讯。分类可后续人工修正，当前只做自动分类。Web 项目直接按这些字段筛选。
+定义在 `config/content_taxonomy.yaml`；选题采用 **Topic Portfolio Balancer**（`config/content_portfolio.yaml`）：selection_score = 质量分 − 主题饱和惩罚 + 组合奖励，高分但近期重复的选题 deferred 回池而非拒绝，杜绝「最高分赢家通吃」；采集内容、选题、文章统一使用；分类 = 规则（confidence ≥ 0.85 直接采用）+ OpenClaw AI 兜底，结果连同 confidence/reason 写 MySQL（`content_classifications` 审计）。中文源不会只因语言被归为新闻快讯。分类可后续人工修正，当前只做自动分类。Web 项目直接按这些字段筛选。
 
 ## Web Integration
 

@@ -53,3 +53,20 @@
 - 同一实体可有多条记录（重分类历史），最新一条为当前生效来源
 
 枚举值由 `config/content_taxonomy.yaml` 定义（app_configs key: `content_taxonomy`），分类可后续人工修正（当前只做自动分类）。
+
+## Topic Portfolio 字段（migration 008）
+
+`topic_candidates` 增加：`raw_score`（=score，质量分）、`selection_score`（组合选择分）、`selection_status`（eligible/selected/deferred/skipped_quota/skipped_duplicate/skipped_low_score/skipped_recent_keyword）、`selection_skip_reason`、`deferred_until`、`portfolio_debug_json`（扣分/加分明细）。
+
+status 语义：`deferred` = 高分但近期主题饱和（窗口后回池，仍是好选题）；`rejected` = 低质量/事实风险/无业务价值（终态）。Web 展示选择原因直接读 `selection_skip_reason` + `portfolio_debug_json`。
+
+## 内容价值分与 Audition 表（migration 009）
+
+`topic_candidates` 增加 `content_value_score`（0-100，独立于 SEO/GEO）+ `value_breakdown_json`（六维细项 + reason）。
+新增 `topic_audition_runs`（一次压力测试：rounds/limit/policy 快照/summary）与 `topic_audition_items`（每轮决策：decision = selected / deferred / skipped_quota / skipped_duplicate / skipped_low_value / skipped_low_source_support，含三种分数与 debug JSON）。
+
+## 文章质量主评分与视觉规划（migration 010）
+
+新增 `article_quality_scores`（每次评分一条：7 维细项 + recommendation + raw_json）。
+`article_versions` 增加 `article_quality_json` / `article_quality_score` / `visual_plan_json`；`articles` 增加 `article_quality_score` / `visual_plan_json`；`publish_packages` 增加 `visual_plan_json` / `article_quality_json`，metadata_json 含 articleQualityScore / visualPlanCount / requiredVisuals / hasVisualPlan。
+新文章状态 `needs_quality_revision`：主评分 < 80 被门禁拦下，修订后重评。

@@ -74,3 +74,17 @@ content_classification:
     provider: openclaw_cli
     model: flyposter-ai/gpt-5.5
     enabled: true
+
+# 选题内容价值评分（独立于 SEO/GEO 的「值不值得写」判断）：批量轻量任务
+topic_value_score:
+  - name: gpt-5.5
+    provider: openclaw_cli
+    model: flyposter-ai/gpt-5.5
+    enabled: true
+
+# 文章质量主评分（>=80 才能进终审；SEO/GEO 不能覆盖）
+article_quality_score:
+  - name: gpt-5.5
+    provider: openclaw_cli
+    model: flyposter-ai/gpt-5.5
+    enabled: true

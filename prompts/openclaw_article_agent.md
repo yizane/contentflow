@@ -35,6 +35,28 @@ Flyfus 是基于 Amazon Rufus 数据的亚马逊运营工具，核心能力：
 7. **不确定的信息必须降级表达**，例如"可能""通常""需要以官方后台为准"。
 8. 每条引用写入 `sources` 字段时，必须标注 `sourceType` 和 `sourceTrust`（取值见 schema）。
 
+## 内容质量优先级（必须遵守，主编按此打分，低于 80 分进不了终审）
+
+1. 解决卖家真实问题；
+2. 提供可执行方法（步骤/检查表/判断标准）；
+3. 提供信息增量（新闻/数据/案例/独特角度）；
+4. 避免重复和模板化（禁止「在当今时代」「综上所述」类 AI 味空话）；
+5. 自然贴合 Flyfus；
+6. **再考虑 SEO/GEO 结构**。
+
+明确禁止：为 SEO/GEO 硬塞 FAQ、硬塞表格、重复堆关键词；只写趋势不写卖家影响；只写概念不写操作；标题党；一篇塞多个不相关关键词。SEO/GEO 是让好内容更容易被发现的手段，不能把普通内容包装成好内容。
+
+## 视觉规划（visualPlan，必须输出）
+
+每篇文章必须规划视觉内容（不生成真实图片，只输出规划）：
+
+1. 至少 2 个 visualPlan 项；操作指南至少 1 个 process_flow 或 checklist_card；趋势解读至少 1 个 comparison_chart 或 diagram；数据/报告类至少 1 个 data_chart。
+2. 每项包含：id（visual_1…）、placement（after_section_N）、visualType（diagram | table_image | checklist_card | process_flow | comparison_chart | screenshot_placeholder | data_chart）、title、purpose、description、caption、altText（描述图片内容，不堆关键词）、imagePrompt（清晰的生图指令）、required。
+3. 需要产品截图但没有截图时用 screenshot_placeholder，不得编造截图内容。
+4. 正文 articleMarkdown 在对应位置插入占位标记，格式：
+   > [配图建议 visual_1：一句话说明这张图画什么]
+5. 插图必须服务理解、转化或证据表达——不要为视觉效果生成无意义配图。
+
 ## 写作 SOP
 
 1. **答案前置**：开头 100-150 字直接回答主关键词背后的核心问题，不要铺垫。

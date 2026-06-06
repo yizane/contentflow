@@ -34,6 +34,7 @@ async function ensureInit() {
     ['models', 'config/models.yaml'],
     ['sources_yaml', 'config/sources.yaml'],
     ['content_taxonomy', 'config/content_taxonomy.yaml'],
+    ['content_portfolio', 'config/content_portfolio.yaml'],
   ];
   for (const f of fs.existsSync(path.join(ROOT, 'prompts')) ? fs.readdirSync(path.join(ROOT, 'prompts')) : []) {
     if (f.endsWith('.md')) wantDocs.push([`prompt:${f}`, `prompts/${f}`]);

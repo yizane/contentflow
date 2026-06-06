@@ -73,6 +73,30 @@ async function main() {
     };
     const taxonomySummary = { contentTypeCounts, businessCategoryCounts, topicClusterCounts, sourceItemsByCategory7d: srcCatCounts, underproducedCategories, backlogByCategory, unclassified };
 
+    // 文章质量优先（Phase 13）：主评分概览
+    const aqRows = await my.query("SELECT id, title, article_quality_score, seo_score, geo_score, visual_plan_json FROM articles WHERE status != 'archived'");
+    const aqScored = aqRows.filter((a) => a.article_quality_score != null);
+    const avgN = (arr) => (arr.length ? Math.round(arr.reduce((s2, v) => s2 + v, 0) / arr.length) : null);
+    const qualityOverview = {
+      avgArticleQualityScore: avgN(aqScored.map((a) => a.article_quality_score)),
+      avgSeoScore: avgN(aqRows.filter((a) => a.seo_score).map((a) => a.seo_score)),
+      avgGeoScore: avgN(aqRows.filter((a) => a.geo_score).map((a) => a.geo_score)),
+      scoredArticles: aqScored.length,
+      unscoredArticles: aqRows.length - aqScored.length,
+      lowQualityArticles: aqScored.filter((a) => a.article_quality_score < 80).map((a) => ({ id: a.id, title: a.title.slice(0, 40), articleQualityScore: a.article_quality_score })),
+      visualPlanMissing: aqRows.filter((a) => !my.asJson(a.visual_plan_json)).map((a) => ({ id: a.id, title: a.title.slice(0, 40) })),
+    };
+
+    // 内容组合健康度（Topic Portfolio Balancer）
+    let portfolioHealth = null;
+    try {
+      portfolioHealth = await require('./lib/topic_portfolio_lib').getPortfolioHealthReport();
+    } catch (err) {
+      portfolioHealth = { error: `portfolio 健康度获取失败: ${err.message.slice(0, 120)}` };
+    }
+    // 今日被节流的高分候选（为什么跳过）
+    const deferredToday = await my.query("SELECT topic, raw_score, selection_score, selection_skip_reason, deferred_until FROM topic_candidates WHERE status = 'deferred' AND updated_at >= CURDATE() ORDER BY raw_score DESC LIMIT 10");
+
     // trace 健康度：最近 24h 的 trace 事件量 + 最近 run 是否有 trace 缺失迹象
     const traceHealth = (await my.query("SELECT (SELECT COUNT(*) FROM workflow_steps WHERE created_at >= DATE_SUB(NOW(3), INTERVAL 1 DAY)) steps, (SELECT COUNT(*) FROM workflow_events WHERE created_at >= DATE_SUB(NOW(3), INTERVAL 1 DAY)) events, (SELECT COUNT(*) FROM workflow_events WHERE level='error' AND created_at >= DATE_SUB(NOW(3), INTERVAL 1 DAY)) errorEvents"))[0];
 
@@ -93,6 +117,8 @@ async function main() {
       channelCoverage: { totalReadyArticles: reviewables.length, completeChannelSet, missingChannels: missingChannelsList },
       seoGeoSummary, failedModelRuns, traceHealth,
       contentTypeCounts, businessCategoryCounts, topicClusterCounts, taxonomySummary,
+      portfolioHealth, qualityOverview,
+      deferredToday: deferredToday.map((d) => ({ topic: d.topic.slice(0, 60), rawScore: d.raw_score, selectionScore: d.selection_score, reason: d.selection_skip_reason, deferredUntil: String(d.deferred_until || '').slice(0, 10) })),
       packages: packages.map((p) => ({ slug: p.slug, status: p.status, ready: !!p.ready_for_publish_package })),
       nextActions,
     };
@@ -127,6 +153,30 @@ ${Object.keys(backlogByCategory).length ? `**待补来源积压（按业务分�
 
 ${unclassified.sourceItems + unclassified.topicCandidates + unclassified.articles > 0 ? `> ⚠️ 未分类：source_items ${unclassified.sourceItems} / topic_candidates ${unclassified.topicCandidates} / articles ${unclassified.articles}，运行 \`npm run content:classify -- --all\`` : ''}
 
+## 文章质量优先（主评分 >= 80 才能进终审；SEO/GEO 是建议线不是门槛）
+
+平均主评分 **${qualityOverview.avgArticleQualityScore ?? '-'}**（已评 ${qualityOverview.scoredArticles} 篇 / 未评 ${qualityOverview.unscoredArticles} 篇）｜ SEO ${qualityOverview.avgSeoScore ?? '-'} / GEO ${qualityOverview.avgGeoScore ?? '-'}（辅助参考）
+
+${qualityOverview.lowQualityArticles.length ? '**低质量文章（被阻止进入终审）**：\n' + qualityOverview.lowQualityArticles.map((a) => `- [${a.articleQualityScore}] ${a.title} \`${a.id}\``).join('\n') : '无低于 80 分的文章'}
+
+${qualityOverview.visualPlanMissing.length ? `**缺视觉规划**：${qualityOverview.visualPlanMissing.length} 篇（旧文章，修订时自动补全）` : '视觉规划齐全'}
+
+## 内容组合健康度（Portfolio Health）
+
+**近 14 天业务分类分布**: ${portfolioHealth && portfolioHealth.recentBusinessCategoryDistribution ? Object.entries(portfolioHealth.recentBusinessCategoryDistribution.d14).map(([k, c]) => `${k} ${c}`).join(' · ') || '（无）' : '-'}
+
+**近 14 天主题簇分布**: ${portfolioHealth && portfolioHealth.recentTopicClusterDistribution ? Object.entries(portfolioHealth.recentTopicClusterDistribution.d14).map(([k, c]) => `${k} ${c}`).join(' · ') || '（无）' : '-'}
+
+**deferred 候选**: ${portfolioHealth ? portfolioHealth.deferredCandidates ?? '-' : '-'} 个在窗口期内等待回池
+
+${portfolioHealth && portfolioHealth.dominantClusterWarning && portfolioHealth.dominantClusterWarning.length ? '**⚠️ 集中度告警**：\n' + portfolioHealth.dominantClusterWarning.map((w) => `- ${w}`).join('\n') : '集中度正常'}
+
+${deferredToday.length ? '**今日被组合节流的高分候选**：\n' + deferredToday.map((d) => `- [raw ${d.raw_score} → sel ${d.selection_score}] ${d.topic.slice(0, 50)} — ${(d.selection_skip_reason || '').slice(0, 60)}（${String(d.deferred_until || '').slice(0, 10)} 回池）`).join('\n') : ''}
+
+${portfolioHealth && portfolioHealth.keywordDistributionWarnings && portfolioHealth.keywordDistributionWarnings.length ? '**关键词库告警**：\n' + portfolioHealth.keywordDistributionWarnings.map((w) => `- ${w}`).join('\n') : ''}
+
+${portfolioHealth && portfolioHealth.recommendations && portfolioHealth.recommendations.length ? '**建议**：\n' + portfolioHealth.recommendations.map((r) => `- ${r}`).join('\n') : ''}
+
 ## 渠道覆盖
 
 ${reviewables.length} 篇可终审，${completeChannelSet} 篇渠道齐全
@@ -143,7 +193,7 @@ ${nextActions.map((a, i) => `${i + 1}. ${a}`).join('\n')}
     const id = my.makeId('report');
     await my.insert('engine_reports', { id, engine_run_id: args.runId || null, report_json: report, report_markdown: md, created_at: my.now() });
 
-    console.log(JSON.stringify({ ok: true, reportId: id, storedIn: 'engine_reports (MySQL)', statusCounts, contentTypeCounts, businessCategoryCounts, topicClusterCounts, readyForReview: readyForReview.length, needsFactSources: needsFactSources.length, channelCoverage: report.channelCoverage, seoGeoSummary: { avgSeo: seoGeoSummary.avgSeoScore, avgGeo: seoGeoSummary.avgGeoScore, scored: seoGeoSummary.scoredArticles }, nextActions }, null, 2));
+    console.log(JSON.stringify({ ok: true, reportId: id, storedIn: 'engine_reports (MySQL)', statusCounts, qualityOverview, contentTypeCounts, businessCategoryCounts, topicClusterCounts, portfolioHealth, readyForReview: readyForReview.length, needsFactSources: needsFactSources.length, channelCoverage: report.channelCoverage, seoGeoSummary: { avgSeo: seoGeoSummary.avgSeoScore, avgGeo: seoGeoSummary.avgGeoScore, scored: seoGeoSummary.scoredArticles }, nextActions }, null, 2));
   } catch (err) {
     console.log(JSON.stringify({ ok: false, error: err.message }, null, 2));
     process.exitCode = 1;

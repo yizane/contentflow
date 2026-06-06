@@ -56,7 +56,10 @@ function SummaryHead({ a }) {
         <StatusFlow status={a.status} />
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(110px,1fr))", gap: 0, marginTop: 16, border: "1px solid var(--line)", borderRadius: 11, overflow: "hidden" }}>
           {[
-            ["质量分", <Score value={a.quality} />],
+            ["主评分", a.articleQualityScore != null
+              ? <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Score value={a.articleQualityScore} />{a.articleQualityScore < 80 && <Icon name="alert" size={13} style={{ color: "var(--bad)" }} title="低于 80，不得进入终审" />}</span>
+              : <span style={{ color: "var(--ink-4)", fontWeight: 700 }}>未评</span>],
+            ["质量门", <Score value={a.quality} />],
             ["事实核查", <Badge tone={a.fact === "publish" ? "ok" : a.fact === "needs" ? "warn" : a.fact === "failed" ? "bad" : "mut"} dot={false}>{a.factText}</Badge>],
             ["SEO / GEO", a.seo ? <span className="tnum" style={{ fontWeight: 800, fontSize: 15 }}><span style={{ color: scoreColor(a.seo) }}>{a.seo}</span> / <span style={{ color: scoreColor(a.geo) }}>{a.geo}</span></span> : <span style={{ color: "var(--ink-4)", fontWeight: 700 }}>未评分</span>],
             ["综合分", a.overall ? <Score value={a.overall} /> : <span style={{ color: "var(--ink-4)", fontWeight: 700 }}>—</span>],
@@ -125,6 +128,7 @@ function ArticleDetail({ nav, params, toast, onChanged }) {
   const TABS = [
     ["body", "正文", "doc2"],
     ["quality", "质量报告", "checkCircle"],
+    ["visual", "视觉规划", "eye", (a.visualPlan || []).length || null],
     ["fact", "事实核查", "shield", a.fact === "needs" ? a.sources.filter(s => s.status !== "resolved").length : null],
     ["sources", "来源补全", "link"],
     ["channels", "渠道稿", "share"],
@@ -183,6 +187,7 @@ function ArticleDetail({ nav, params, toast, onChanged }) {
         <div style={{ padding: "22px 24px" }}>
           {tab === "body" && <BodyTab a={a} version={version} setVersion={setVersion} curVer={curVer} />}
           {tab === "quality" && <QualityTab a={a} />}
+          {tab === "visual" && <VisualPlanTab a={a} toast={toast} />}
           {tab === "fact" && <FactTab a={a} />}
           {tab === "sources" && <SourcesTab a={a} />}
           {tab === "channels" && <ChannelsTab a={a} toast={toast} />}
@@ -228,9 +233,35 @@ function BodyTab({ a, version, setVersion, curVer }) {
 /* ---------- Quality ---------- */
 function QualityTab({ a }) {
   const verdict = { publish: ["可发布", "ok"], revise: ["建议修订", "warn"], reject: ["不通过", "bad"] }[a.qualityVerdict] || [a.qualityVerdict, "mut"];
-  if (!a.qualityDims.length) return <Empty icon="checkCircle" title="暂无质量报告" desc="该文章尚未经过质量门评估。" />;
+  if (!a.qualityDims.length && !a.articleQuality) return <Empty icon="checkCircle" title="暂无质量报告" desc="该文章尚未经过质量评估。" />;
   return (
     <div>
+      {a.articleQuality && (
+        <div style={{ marginBottom: 26, padding: "16px 18px", border: `1px solid ${a.articleQuality.score >= 80 ? "var(--ok-line)" : "var(--bad-line)"}`, borderRadius: 12, background: a.articleQuality.score >= 80 ? "var(--ok-soft)" : "var(--bad-soft)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 800, fontSize: 14 }}>文章质量主评分</span>
+            <span className="tnum" style={{ fontSize: 30, fontWeight: 800, color: scoreColor(a.articleQuality.score) }}>{a.articleQuality.score}</span>
+            <Badge tone={a.articleQuality.score >= 88 ? "ok" : a.articleQuality.score >= 80 ? "ok" : a.articleQuality.score >= 70 ? "warn" : "bad"} dot={false}>
+              {{ excellent: "优秀", good: "良好", revise: "需修订", reject: "不通过" }[a.articleQuality.recommendation] || a.articleQuality.recommendation}
+            </Badge>
+            <span style={{ fontSize: 11.5, color: "var(--ink-3)" }}>主评分 ≥ 80 才能进终审；SEO/GEO 是辅助建议线，不能覆盖质量不足</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "9px 26px" }}>
+            {a.articleQuality.breakdown.map(([dim, score, max]) => (
+              <div key={dim} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 12.5, width: 92, color: "var(--ink-2)" }}>{dim}</span>
+                <div style={{ flex: 1 }}><Meter value={score} max={max} /></div>
+                <span className="tnum" style={{ fontSize: 12, fontWeight: 700, width: 38, textAlign: "right" }}>{score}/{max}</span>
+              </div>
+            ))}
+          </div>
+          {a.articleQuality.mustFix.length > 0 && (
+            <div style={{ marginTop: 12, fontSize: 12.5, color: "var(--bad)", lineHeight: 1.6 }}>
+              <b>必须修复：</b>{a.articleQuality.mustFix.map((m, i) => <div key={i}>· {m}</div>)}
+            </div>
+          )}
+        </div>
+      )}
       <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 22, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
           <span className="tnum" style={{ fontSize: 44, fontWeight: 800, letterSpacing: "-.03em", color: scoreColor(a.quality) }}>{a.quality}</span>
@@ -392,6 +423,48 @@ function ChannelsTab({ a, toast }) {
       ) : (
         <Empty icon="clock" title={`${cur.name}尚未生成`} desc="文章通过事实核查后，渠道稿会自动生成。" />
       )}
+    </div>
+  );
+}
+
+/* ---------- 视觉规划 ---------- */
+const VISUAL_TYPE_ZH = {
+  diagram: "示意图", table_image: "表格图", checklist_card: "清单卡片", process_flow: "流程图",
+  comparison_chart: "对比图", screenshot_placeholder: "截图占位", data_chart: "数据图表",
+};
+function VisualPlanTab({ a, toast }) {
+  const vp = a.visualPlan || [];
+  if (!vp.length) return <Empty icon="eye" title="暂无视觉规划" desc="旧版本文章缺 visualPlan；下次修订（sources:fix）会自动补全 ≥2 个视觉规划。新生成的文章会自带。" />;
+  const copy = (text) => navigator.clipboard.writeText(text).then(
+    () => toast("imagePrompt 已复制", { icon: "copy", color: "var(--info-solid)" }),
+    () => toast("复制失败", { icon: "xCircle", color: "var(--bad-solid)" }));
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 9, padding: "11px 14px", marginBottom: 16, background: "var(--info-soft)", border: "1px solid var(--info-line)", borderRadius: 10, fontSize: 12.5, color: "var(--ink-2)", lineHeight: 1.5 }}>
+        <Icon name="eye" size={15} style={{ color: "var(--info)", flex: "0 0 auto", marginTop: 1 }} />
+        共 {vp.length} 个视觉规划（{vp.filter(v => v.required).length} 个必需）。系统只输出 brief / alt / caption / 生图提示，不自动生成图片——交给设计师或 AI 生图工具。正文中的「[配图建议 …]」引用块即对应占位。
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {vp.map((v, i) => (
+          <div key={i} style={{ border: "1px solid var(--line)", borderRadius: 12, overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 15px", background: "var(--surface-2)", borderBottom: "1px solid var(--line-soft)" }}>
+              <span className="mono" style={{ fontSize: 11.5, color: "var(--ink-4)", fontWeight: 700 }}>{v.id}</span>
+              <span className="chip" style={{ height: 22, fontSize: 11.5, background: "var(--brand-50)", borderColor: "var(--brand-200)", color: "var(--brand-700)" }}>{VISUAL_TYPE_ZH[v.visualType] || v.visualType}</span>
+              <span style={{ fontWeight: 700, fontSize: 13.5 }}>{v.title}</span>
+              <span className="mono" style={{ fontSize: 11, color: "var(--ink-4)" }}>{v.placement}</span>
+              {v.required && <Badge tone="warn" dot={false}>必需</Badge>}
+              <Btn kind="ghost" size="sm" icon="copy" style={{ marginLeft: "auto" }} onClick={() => copy(v.imagePrompt || "")}>复制生图提示</Btn>
+            </div>
+            <div style={{ padding: "13px 15px", display: "grid", gridTemplateColumns: "88px 1fr", gap: "8px 14px", fontSize: 13, lineHeight: 1.55 }}>
+              <span style={{ color: "var(--ink-3)", fontWeight: 600 }}>用途</span><span>{v.purpose}</span>
+              <span style={{ color: "var(--ink-3)", fontWeight: 600 }}>内容描述</span><span style={{ color: "var(--ink-2)" }}>{v.description}</span>
+              <span style={{ color: "var(--ink-3)", fontWeight: 600 }}>caption</span><span style={{ color: "var(--ink-2)" }}>{v.caption}</span>
+              <span style={{ color: "var(--ink-3)", fontWeight: 600 }}>altText</span><span style={{ color: "var(--ink-2)" }}>{v.altText}</span>
+              <span style={{ color: "var(--ink-3)", fontWeight: 600 }}>生图提示</span><span className="mono" style={{ fontSize: 12, color: "var(--ink-2)", background: "var(--mut-soft)", padding: "6px 9px", borderRadius: 6 }}>{v.imagePrompt}</span>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

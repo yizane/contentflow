@@ -37,3 +37,15 @@ npm run engine:daily -- --plan-only        # 只评估是否允许，不执行
 ```
 
 排查：`run_actions` 表记录每次触发与拒绝原因；被拒绝时按 `availableActions` 提示选 retry/rebuild。**不要绕过控制直接反复跑 engine:batch --run-type daily。**
+
+## 选题质量验证（Phase 12D）
+
+不要等 7/14/30 天观察——用选题压力测试立即看未来会写什么：
+
+```bash
+npm run topic:audition -- --rounds 10 --limit 3 --refresh-candidates   # 刷新候选池后模拟 10 轮
+npm run topic:audition -- --rounds 20 --limit 1                        # 模拟未来 20 天每天 1 篇
+npm run keywords:analyze                                               # 关键词库偏置体检
+```
+
+报告回答：未来选题日历 / 分类分布 / 价值分（痛点·可执行性）/ 重复风险 / 高分被延期原因 / 分类缺口归因（无候选=关键词或源不足；有候选低价值=质量不足；合格但竞争不过=调 bonus）/ 是否可以开始生成。

@@ -5,6 +5,8 @@ const my = require('../lib/mysql_lib');
 
 const ALLOWED_TARGET = ['reviewed', 'approved_for_publish', 'archived', 'rejected', 'ready_for_review'];
 
+const ARTICLE_QUALITY_MIN = 80;
+
 function checkTransition(from, to, note) {
   if ((to === 'reviewed' || to === 'approved_for_publish') && !['ready_for_review', 'reviewed'].includes(from)) {
     return `只有 ready_for_review / reviewed 可进入 ${to}（当前: ${from}）`;
@@ -41,7 +43,12 @@ async function main() {
       return;
     }
     const article = articles[0];
-    const violation = checkTransition(article.status, args.status, args.note);
+    let violation = checkTransition(article.status, args.status, args.note);
+    // 质量主门禁：质量分不足不得通过/批准（SEO/GEO 不能覆盖）
+    if (!violation && ['reviewed', 'approved_for_publish'].includes(args.status)
+        && article.article_quality_score != null && article.article_quality_score < ARTICLE_QUALITY_MIN) {
+      violation = `文章质量主评分 ${article.article_quality_score} < ${ARTICLE_QUALITY_MIN}，不得${args.status === 'reviewed' ? '通过复审' : '批准发布'}（先修订或重评：npm run score:article-quality -- --article-id ${article.id} --force）`;
+    }
     if (violation) {
       console.log(JSON.stringify({ ok: false, articleId: article.id, beforeStatus: article.status, requestedStatus: args.status, error: violation }, null, 2));
       process.exitCode = 1;

@@ -35,3 +35,17 @@
 - `scripts/classify_lib.js` + `scripts/content_classify.js`：规则 confidence ≥ 0.85 直接采用，否则批量调 OpenClaw（content_classifier prompt + schema），结果写实体表 + content_classifications + workflow_events + model_runs。
 - 主流程接入：采集后自动分类（AI 限额）、选题 AI 直出分类（schema 增 contentType/businessCategory/topicCluster，缺失回退规则不阻断）、job→文章→版本继承、发布包 metadata、engine_report 分类统计、db:list/db:show 筛选展示、Viewer 筛选与详情展示。
 - 已知边界：批量 AI 分类单批 ≤ 30 条；规则无信号且 AI 不可用时该条保持未分类（engine_report 会提示回填命令）。
+
+## Phase 12B — Topic Portfolio Balancer
+
+- 诊断确认三层问题：选择器赢家通吃、关键词库 62% 集中（4 个分类挂零）、生成 prompt 优先方向偏置。
+- `config/content_portfolio.yaml`（分类目标占比/簇配额/惩罚/奖励/defer 策略）+ migration 008 + `topic_portfolio_lib`。
+- jobs_create 改组合选择；topic_generator 加组合多样性硬性要求；keywords.csv 50→114（再平衡后 keywords:analyze 告警清零）。
+- 已知边界：deferred 回池后若仍饱和会再次 deferred；组合目标 share 基于近 14 天产出（样本少时欠代表奖励普遍生效，属预期冷启动行为）。
+
+## Phase 13 — Article Quality First & Visual Planning
+
+- 主评分（article_quality_evaluator，7 维）+ 终审门禁（pipeline gateReadyForReview / review_mark / Viewer 双守卫）；SEO/GEO 降为建议线。
+- visualPlan 进 schema（生成与修订必须输出 ≥2），validate_data_lib 校验占位引用/altText/截图占位不造假；旧文不强改，修订时自动补全。
+- 实证：两篇 95/86 质量门 + 88-95 SEO/GEO 的存量文章被主编评分打 76（重复 + 实操不足），全部被阻止通过终审——证明「SEO/GEO 不能覆盖质量不足」落地。
+- 已知边界：评分对加法有 ±5 容差（以维度和为准）；评分失败时门禁保守放行并写 warning（不让评分故障卡死流水线）。

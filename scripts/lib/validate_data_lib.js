@@ -58,7 +58,15 @@ function validateArticleData(article, quality) {
       if (!quality.breakdown || typeof quality.breakdown[d] !== 'number') issues.push(`quality.breakdown.${d} 缺失`);
     }
   }
-  return { ok: issues.length === 0, issues };
+
+  // visualPlan：结构问题算 issue（schema 已要求），规范性问题算 warning（质量评分的 clarity 自然体现）
+  const warnings = [];
+  if (article.visualPlan !== undefined) {
+    const vp = validateVisualPlan(article.visualPlan, md, article.category);
+    issues.push(...vp.issues);
+    warnings.push(...vp.warnings);
+  }
+  return { ok: issues.length === 0, issues, warnings };
 }
 
 // 事实核查
@@ -250,4 +258,56 @@ function validateScoreSetData({ seo, geo, dual }, weights) {
   return { ok: issues.length === 0, issues, summary };
 }
 
-module.exports = { validateArticleData, validateFactCheckData, validateChannelData, validateTopicCandidatesData, validateSourceResolutionData, validateRevisedArticleData, validateScoreSetData, bannedIn };
+// 文章质量主评分校验
+const AQ_DIMS = [['sellerPainFit', 20], ['actionability', 20], ['informationGain', 20], ['originality', 10], ['clarity', 10], ['evidenceUse', 10], ['businessUsefulness', 10]];
+function validateArticleQualityData(data) {
+  const issues = [];
+  if (!data || typeof data !== 'object') return { ok: false, issues: ['不是对象'] };
+  const b = data.breakdown || {};
+  let sum = 0;
+  for (const [k, max] of AQ_DIMS) {
+    if (typeof b[k] !== 'number' || b[k] < 0 || b[k] > max) issues.push(`breakdown.${k} 非法（0-${max}）`);
+    else sum += b[k];
+  }
+  if (typeof data.articleQualityScore !== 'number' || data.articleQualityScore < 0 || data.articleQualityScore > 100) issues.push('articleQualityScore 非法');
+  else if (Math.abs(data.articleQualityScore - sum) > 5) issues.push(`articleQualityScore(${data.articleQualityScore}) 与维度和(${sum})偏差过大`);
+  else if (data.articleQualityScore !== sum) data.articleQualityScore = sum; // 小幅加法误差：以维度和为准
+  if (!['excellent', 'good', 'revise', 'reject'].includes(data.qualityRecommendation)) issues.push('qualityRecommendation 非法');
+  for (const f of ['strengths', 'issues', 'mustFix', 'niceToHave']) {
+    if (!Array.isArray(data[f])) issues.push(`${f} 必须是数组`);
+  }
+  return { ok: issues.length === 0, issues };
+}
+
+// 视觉规划校验（缺失不 reject，只 warning + 质量分自然扣 clarity）
+const VISUAL_TYPES = ['diagram', 'table_image', 'checklist_card', 'process_flow', 'comparison_chart', 'screenshot_placeholder', 'data_chart'];
+function validateVisualPlan(visualPlan, articleMarkdown, contentType) {
+  const issues = [];
+  const warnings = [];
+  if (!Array.isArray(visualPlan) || visualPlan.length === 0) {
+    return { ok: true, issues: [], warnings: ['visualPlan 缺失（建议每篇至少 2 个视觉规划）'] };
+  }
+  if (visualPlan.length < 2) warnings.push(`visualPlan 仅 ${visualPlan.length} 个（建议至少 2 个）`);
+  const md = articleMarkdown || '';
+  visualPlan.forEach((v, i) => {
+    for (const f of ['id', 'placement', 'visualType', 'title', 'purpose', 'description', 'caption', 'altText', 'imagePrompt']) {
+      if (!v[f]) issues.push(`visualPlan[${i}] 缺少 ${f}`);
+    }
+    if (v.visualType && !VISUAL_TYPES.includes(v.visualType)) issues.push(`visualPlan[${i}].visualType 非法: ${v.visualType}`);
+    if (v.id && !md.includes(v.id) && !(v.title && md.includes(v.title))) warnings.push(`visualPlan[${i}]（${v.id}）未在正文中引用占位标记`);
+    if (v.altText && /关键词|keyword/i.test(v.altText) === false && v.altText.length < 8) warnings.push(`visualPlan[${i}].altText 过短，应描述图片内容`);
+    if (v.visualType === 'screenshot_placeholder' && /真实截图|实际截图|如图所示的后台/.test(v.description || '')) issues.push(`visualPlan[${i}] screenshot_placeholder 不得声称已有真实截图`);
+  });
+  if (contentType === 'operation_guide' && !visualPlan.some((v) => ['process_flow', 'checklist_card'].includes(v.visualType))) {
+    warnings.push('操作指南建议至少一个 process_flow 或 checklist_card');
+  }
+  if (contentType === 'trend_analysis' && !visualPlan.some((v) => ['comparison_chart', 'diagram'].includes(v.visualType))) {
+    warnings.push('趋势解读建议至少一个 comparison_chart 或 diagram');
+  }
+  if (['market_report'].includes(contentType) && !visualPlan.some((v) => v.visualType === 'data_chart')) {
+    warnings.push('数据/报告类建议至少一个 data_chart');
+  }
+  return { ok: issues.length === 0, issues, warnings };
+}
+
+module.exports = { validateArticleData, validateFactCheckData, validateChannelData, validateTopicCandidatesData, validateSourceResolutionData, validateRevisedArticleData, validateScoreSetData, validateArticleQualityData, validateVisualPlan, bannedIn };

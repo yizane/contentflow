@@ -30,6 +30,8 @@ async function callAgent({ taskType, prompt, sessionKey, engineRunId, articleId,
   const routeKey = taskType === 'article_generation' ? 'article_generation'
     : taskType === 'channel_repurpose' ? 'channel_repurpose'
     : taskType === 'content_classification' ? 'content_classification'
+    : taskType === 'topic_value_score' ? 'topic_value_score'
+    : taskType === 'article_quality_score' ? 'article_quality_score'
     : 'fact_check';
   const route = providers.resolveRoute(routeKey);
   const provider = route.providerKey;
@@ -160,9 +162,10 @@ async function generateTopics({ engineRunId }) {
   if (items.length === 0) return { ok: false, error: '没有 source_items，请先 collect:sources' };
   const keywordsCsv = config.getKeywordsCsv();
 
+  const recentForRepetition = (await my.query("SELECT title FROM articles WHERE status != 'archived' AND created_at >= DATE_SUB(NOW(3), INTERVAL 30 DAY) ORDER BY created_at DESC LIMIT 20")).map((x) => x.title);
   const r = await callAgent({
     taskType: 'topic_generation',
-    prompt: prompts.topicGenerationPrompt({ sourceItems: items, keywordsCsv }),
+    prompt: prompts.topicGenerationPrompt({ sourceItems: items, keywordsCsv, recentTopics: recentForRepetition }),
     sessionKey: `agent:main:topicgen-${Date.now() % 1e6}`,
     engineRunId,
   });
@@ -219,7 +222,13 @@ async function generateTopics({ engineRunId }) {
       id: topicId, engine_run_id: engineRunId, topic: c.topic.slice(0, 510), normalized_topic: norm.slice(0, 510),
       primary_keyword: c.primaryKeyword, secondary_keywords_json: c.secondaryKeywords || [], category: c.category,
       content_angle: c.contentAngle, business_angle: c.businessAngle, source_item_ids_json: [], source_urls_json: c.sourceUrls || [],
-      score: Math.round(c.score), priority: c.priority, status: rejection ? 'rejected' : 'candidate',
+      score: Math.round(c.score), raw_score: Math.round(c.score),
+      content_value_score: c.contentValueScore != null ? Math.round(c.contentValueScore) : null,
+      value_breakdown_json: c.contentValueScore != null ? {
+        sellerPainValue: c.sellerPainValue, actionability: c.actionability, informationGain: c.informationGain,
+        businessFit: c.businessFit, nonRepetition: c.nonRepetition, sourceSupport: c.sourceSupport,
+      } : null,
+      priority: c.priority, status: rejection ? 'rejected' : 'candidate',
       reject_reason: rejection ? `[dedupe] ${rejection}` : c.rejectRisk || null,
       content_type: cls ? cls.contentType : null, business_category: cls ? cls.businessCategory : null,
       topic_cluster: cls ? cls.topicCluster : null,
@@ -316,6 +325,7 @@ async function runArticleJob(job, { engineRunId, maxAttempts = 3 }) {
     quality_score: quality.score, publish_recommendation: quality.publishRecommendation,
     content_type: cls ? cls.contentType : null, business_category: cls ? cls.businessCategory : null,
     topic_cluster: cls ? cls.topicCluster : null,
+    visual_plan_json: article.visualPlan || null,
     created_at: now, updated_at: now,
   });
   await my.insert('article_versions', {
@@ -327,6 +337,7 @@ async function runArticleJob(job, { engineRunId, maxAttempts = 3 }) {
     quality_score: quality.score, publish_recommendation: quality.publishRecommendation,
     content_type: cls ? cls.contentType : null, business_category: cls ? cls.businessCategory : null,
     topic_cluster: cls ? cls.topicCluster : null,
+    visual_plan_json: article.visualPlan || null,
     content_sha256: my.sha256(article.articleMarkdown), created_at: now, updated_at: now,
   });
   if (cls && cls.contentType) {
@@ -353,6 +364,69 @@ async function runArticleJob(job, { engineRunId, maxAttempts = 3 }) {
   return { ok: true, jobId: job.id, articleId, versionId, title: article.articleTitle, qualityScore: quality.score, publishRecommendation: quality.publishRecommendation };
 }
 
+// ---------- 文章质量主评分（>=80 才能进终审；SEO/GEO 不能覆盖）----------
+const ARTICLE_QUALITY_MIN = 80;
+
+async function scoreArticleQuality(article, { engineRunId, force = false }) {
+  await config.ensureInit();
+  const ver = await my.latestVersion(article.id);
+  if (!ver || !ver.article_markdown) return { ok: false, articleId: article.id, error: '无版本正文' };
+  if (!force && ver.article_quality_score != null) {
+    return { ok: true, skipped: true, articleId: article.id, articleQualityScore: ver.article_quality_score };
+  }
+  const recentTitles = (await my.query("SELECT title FROM articles WHERE id != ? AND status != 'archived' AND created_at >= DATE_SUB(NOW(3), INTERVAL 30 DAY) ORDER BY created_at DESC LIMIT 15", [article.id])).map((x) => x.title);
+  const visualPlan = my.asJson(ver.visual_plan_json) || (my.asJson(ver.article_json) || {}).visualPlan || null;
+
+  const r = await callAgent({
+    taskType: 'article_quality_score',
+    prompt: prompts.articleQualityPrompt({ article, articleMarkdown: ver.article_markdown, contentType: article.content_type, recentTitles, visualPlan }),
+    sessionKey: `agent:main:artquality-${article.id}-${Date.now() % 1e5}`,
+    engineRunId, articleId: article.id, articleVersionId: ver.id,
+  });
+  if (!r.ok) return { ok: false, articleId: article.id, error: r.error };
+  const validation = v.validateArticleQualityData(r.data);
+  if (!validation.ok) return { ok: false, articleId: article.id, error: validation.issues.slice(0, 5).join('; ') };
+
+  const q = r.data;
+  const b = q.breakdown;
+  const now = my.now();
+  await my.insert('article_quality_scores', {
+    id: my.makeId('aqscore'), article_id: article.id, article_version_id: ver.id, engine_run_id: engineRunId,
+    article_quality_score: Math.round(q.articleQualityScore),
+    seller_pain_fit: b.sellerPainFit, actionability: b.actionability, information_gain: b.informationGain,
+    originality: b.originality, clarity: b.clarity, evidence_use: b.evidenceUse, business_usefulness: b.businessUsefulness,
+    recommendation: q.qualityRecommendation, raw_json: q, created_at: now,
+  });
+  await my.update('article_versions', { article_quality_json: q, article_quality_score: Math.round(q.articleQualityScore), updated_at: now }, 'id = ?', [ver.id]);
+  await my.update('articles', { article_quality_score: Math.round(q.articleQualityScore), updated_at: now }, 'id = ?', [article.id]);
+  await trace.logWorkflowEvent({
+    engineRunId, workflowStepId: currentStepId(), eventType: 'article_quality_scored',
+    level: q.articleQualityScore >= ARTICLE_QUALITY_MIN ? 'info' : 'warning',
+    message: `文章质量主评分: ${article.id} = ${q.articleQualityScore}（${q.qualityRecommendation}）${q.articleQualityScore < ARTICLE_QUALITY_MIN ? ' — 低于 80，阻止进入终审' : ''}`,
+    relatedType: 'article', relatedId: article.id,
+    data: { score: q.articleQualityScore, recommendation: q.qualityRecommendation, mustFix: (q.mustFix || []).length },
+  });
+  return { ok: true, skipped: false, articleId: article.id, articleQualityScore: Math.round(q.articleQualityScore), recommendation: q.qualityRecommendation, mustFix: q.mustFix || [] };
+}
+
+// 终审门禁：拟进入 ready_for_review 时检查主评分（缺失则现场评分）
+async function gateReadyForReview(article, intendedStatus, { engineRunId }) {
+  if (intendedStatus !== 'ready_for_review') return { status: intendedStatus, gated: false };
+  let score = (await my.query('SELECT article_quality_score FROM articles WHERE id = ?', [article.id]))[0].article_quality_score;
+  if (score == null) {
+    const r = await scoreArticleQuality(article, { engineRunId });
+    score = r.ok ? r.articleQualityScore : null;
+  }
+  if (score != null && score < ARTICLE_QUALITY_MIN) {
+    return { status: 'needs_quality_revision', gated: true, score, reason: `文章质量主评分 ${score} < ${ARTICLE_QUALITY_MIN}（SEO/GEO 不能覆盖质量不足）` };
+  }
+  // 评分失败（score 仍为 null）：保守放行但写警告（不让 AI 评分故障卡死流水线）
+  if (score == null) {
+    await trace.logWorkflowEvent({ engineRunId, workflowStepId: currentStepId(), eventType: 'article_quality_score_failed', level: 'warning', message: `文章 ${article.id} 质量评分失败，按原状态推进（请人工复核）`, relatedType: 'article', relatedId: article.id });
+  }
+  return { status: intendedStatus, gated: false, score };
+}
+
 // ---------- 事实核查（对某文章的当前版本）----------
 async function factCheckArticle(article, { engineRunId }) {
   await config.ensureInit();
@@ -372,7 +446,9 @@ async function factCheckArticle(article, { engineRunId }) {
 
   const fc = r.data;
   const now = my.now();
-  const newStatus = deriveFcStatus(fc.publishReadiness);
+  let newStatus = deriveFcStatus(fc.publishReadiness);
+  const gate = await gateReadyForReview(article, newStatus, { engineRunId });
+  if (gate.gated) newStatus = gate.status;
   await my.insert('fact_checks', {
     id: my.makeId('factcheck'), article_id: article.id, article_version_id: ver.id,
     overall_risk: fc.overallRisk, publish_readiness: fc.publishReadiness, claims_count: validation.summary.claims,
@@ -383,7 +459,7 @@ async function factCheckArticle(article, { engineRunId }) {
   await my.update('article_versions', { fact_check_json: fc, fact_publish_readiness: fc.publishReadiness, status: newStatus === 'article_validated' ? 'fact_checked' : newStatus, updated_at: now }, 'id = ?', [ver.id]);
   await my.update('articles', { status: newStatus, fact_overall_risk: fc.overallRisk, fact_publish_readiness: fc.publishReadiness, updated_at: now }, 'id = ?', [article.id]);
   if (article.status !== newStatus) {
-    await trace.logStatusTransition({ entityType: 'article', entityId: article.id, engineRunId, fromStatus: article.status, toStatus: newStatus, reason: `fact check: ${fc.publishReadiness}, mustFix ${validation.summary.mustFix}` });
+    await trace.logStatusTransition({ entityType: 'article', entityId: article.id, engineRunId, fromStatus: article.status, toStatus: newStatus, reason: gate.gated ? gate.reason : `fact check: ${fc.publishReadiness}, mustFix ${validation.summary.mustFix}` });
     await trace.logWorkflowEvent({ engineRunId, workflowStepId: currentStepId(), eventType: 'status_changed', level: 'info', message: `文章 ${article.id}: ${article.status} → ${newStatus}`, relatedType: 'article', relatedId: article.id });
   }
   return { ok: true, articleId: article.id, articleStatus: newStatus, overallRisk: fc.overallRisk, publishReadiness: fc.publishReadiness, claims: validation.summary.claims, mustFix: validation.summary.mustFix };
@@ -504,8 +580,12 @@ async function reviseArticleWithResolution(article, resolution, { engineRunId })
     content_type: ver.content_type || article.content_type || null,
     business_category: ver.business_category || article.business_category || null,
     topic_cluster: ver.topic_cluster || article.topic_cluster || null,
+    visual_plan_json: r.data.visualPlan || my.asJson(ver.visual_plan_json) || null,
     content_sha256: my.sha256(r.data.articleMarkdown), created_at: now, updated_at: now,
   });
+  if (r.data.visualPlan) {
+    await my.update('articles', { visual_plan_json: r.data.visualPlan, updated_at: now }, 'id = ?', [article.id]);
+  }
   await my.update('articles', { current_version_id: newVersionId, updated_at: now }, 'id = ?', [article.id]);
   await my.query('UPDATE source_resolutions SET article_version_id = ?, updated_at = ? WHERE article_id = ? AND article_version_id = ?', [newVersionId, now, article.id, ver.id]);
   await trace.logStatusTransition({ entityType: 'article_version', entityId: newVersionId, engineRunId, fromStatus: null, toStatus: 'generated', reason: `修订版本 v${versionCount + 1}（fact_checked_revision）`, data: { article_id: article.id } });
@@ -549,4 +629,4 @@ async function scoreArticle(article, { engineRunId, strategy = 'balanced', force
   return { ok: true, skipped: false, articleId: article.id, summary: validation.summary };
 }
 
-module.exports = { CHANNELS, WEIGHTS, callAgent, collectSources, generateTopics, runArticleJob, factCheckArticle, generateChannelsForArticle, resolveSourcesForArticle, reviseArticleWithResolution, scoreArticle, deriveFcStatus };
+module.exports = { CHANNELS, WEIGHTS, callAgent, collectSources, generateTopics, runArticleJob, factCheckArticle, generateChannelsForArticle, resolveSourcesForArticle, reviseArticleWithResolution, scoreArticle, scoreArticleQuality, gateReadyForReview, deriveFcStatus, ARTICLE_QUALITY_MIN };

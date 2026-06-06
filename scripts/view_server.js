@@ -246,6 +246,24 @@ const server = http.createServer(async (req, res) => {
       const r = await ui.reviewArticle({ id: m[1], status: body.status, note: body.note, actor: body.actor || 'web' });
       return json(res, r.code, r.data);
     }
+    if (p === '/api/topic-auditions' && req.method === 'GET') {
+      return json(res, 200, { ok: true, auditions: await ui.uiAuditions(parseInt(q.get('limit') || '10', 10)) });
+    }
+    if ((m = p.match(/^\/api\/topic-auditions\/([\w-]+)$/)) && req.method === 'GET') {
+      const d = await ui.uiAudition(m[1]);
+      return d ? json(res, 200, { ok: true, audition: d }) : json(res, 404, { ok: false, error: 'audition not found' });
+    }
+    if (p === '/api/topic-auditions/run' && req.method === 'POST') {
+      // 只跑 audition，不生成文章；后台 spawn，立即返回
+      const body = await readBody(req);
+      const rounds = Math.max(1, Math.min(60, parseInt(body.rounds || 10, 10)));
+      const lim = Math.max(1, Math.min(5, parseInt(body.limit || 1, 10)));
+      const child = spawn('node', [path.join(ROOT, 'scripts', 'pipeline', 'topic_audition.js'), '--rounds', String(rounds), '--limit', String(lim), '--json'], {
+        detached: true, stdio: 'ignore', cwd: ROOT, env: process.env,
+      });
+      child.unref();
+      return json(res, 202, { ok: true, accepted: true, rounds, limit: lim, message: 'audition 已受理（仅模拟选题，不生成文章）；轮询 GET /api/topic-auditions 查看结果' });
+    }
     if (p === '/api/ui/config/doc') {
       const d = await ui.configDoc(q.get('key') || '');
       return d ? json(res, 200, { ok: true, doc: d }) : json(res, 404, { ok: false, error: 'config doc not found' });

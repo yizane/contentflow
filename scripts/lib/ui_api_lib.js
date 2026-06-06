@@ -210,7 +210,7 @@ async function listArticlesUI(limit = 100) {
   const arts = await my.query(
     `SELECT a.id, a.title, a.slug, a.status, a.quality_score, a.seo_score, a.geo_score,
             a.fact_publish_readiness, a.publish_recommendation, a.engine_run_id, a.topic_candidate_id,
-            a.content_type, a.business_category, a.topic_cluster,
+            a.content_type, a.business_category, a.topic_cluster, a.article_quality_score,
             a.created_at, a.updated_at, t.score topic_score, t.priority topic_priority
      FROM articles a LEFT JOIN topic_candidates t ON t.id = a.topic_candidate_id
      ORDER BY a.created_at DESC LIMIT ${Math.min(200, limit)}`);
@@ -235,6 +235,7 @@ async function listArticlesUI(limit = 100) {
     // 待补来源细分：有「需人工介入」表述的算人工待办，其余为系统自动补源中
     needsHuman: a.status === 'needs_fact_sources' && humanSet.has(a.id),
     contentType: a.content_type, businessCategory: a.business_category, topicCluster: a.topic_cluster,
+    articleQualityScore: a.article_quality_score ?? null,
     words: wordsBy[a.id] || 0,
     created: dt(a.created_at), updated: dt(a.updated_at), createdDay: localDay(a.created_at),
     topicScore: a.topic_score, priority: a.topic_priority || '—',
@@ -284,6 +285,8 @@ async function listTopicsUI(dailyKey) {
       status: r.status, reason: r.reject_reason || '',
       srcCount: (my.asJson(r.source_item_ids_json) || my.asJson(r.source_urls_json) || []).length,
       contentType: r.content_type, businessCategory: r.business_category, topicCluster: r.topic_cluster,
+      rawScore: r.raw_score, selectionScore: r.selection_score, selectionStatus: r.selection_status,
+      skipReason: r.selection_skip_reason || null, deferredUntil: r.deferred_until ? dt(r.deferred_until) : null,
       articleId: artBy[r.id] || null, created: dt(r.created_at),
     })),
   };
@@ -408,6 +411,50 @@ async function uiBootstrap() {
     chronicSources,
     articles, runs, topics: topicsRes.topics, topicsScope: topicsRes.scope, trend, config,
     taxonomy: uiTaxonomy(),
+    portfolio: await uiPortfolioSummary(),
+  };
+}
+
+// 今日组合决策摘要（选题池页展示「为什么选这个/为什么没选那个」）
+async function uiPortfolioSummary() {
+  try {
+    const deferred = await my.query("SELECT topic, raw_score, selection_score, selection_skip_reason, deferred_until FROM topic_candidates WHERE status = 'deferred' AND deferred_until > NOW(3) ORDER BY raw_score DESC LIMIT 8");
+    const selected = await my.query("SELECT topic, raw_score, selection_score, business_category, topic_cluster FROM topic_candidates WHERE selection_status = 'selected' ORDER BY updated_at DESC LIMIT 3");
+    return {
+      deferredCount: (await my.query("SELECT COUNT(*) c FROM topic_candidates WHERE status = 'deferred' AND deferred_until > NOW(3)"))[0].c,
+      deferred: deferred.map((d) => ({ topic: d.topic, rawScore: d.raw_score, selectionScore: d.selection_score, reason: d.selection_skip_reason, until: d.deferred_until ? dt(d.deferred_until) : null })),
+      lastSelected: selected.map((s2) => ({ topic: s2.topic, rawScore: s2.raw_score, selectionScore: s2.selection_score, businessCategory: s2.business_category, topicCluster: s2.topic_cluster })),
+    };
+  } catch (_) {
+    return { deferredCount: 0, deferred: [], lastSelected: [] };
+  }
+}
+
+// ---------- Topic Audition（选题压力测试结果，只读）----------
+async function uiAuditions(limit = 10) {
+  const rows = await my.query(`SELECT id, rounds, limit_per_round, status, summary_json, created_at FROM topic_audition_runs ORDER BY created_at DESC LIMIT ${Math.min(50, limit)}`);
+  return rows.map((r) => {
+    const s = my.asJson(r.summary_json) || {};
+    return {
+      id: r.id, rounds: r.rounds, limitPerRound: r.limit_per_round, status: r.status, created: dt(r.created_at),
+      totalSelected: s.totalSelected, categoriesCovered: s.categoriesCovered, alexaListingShare: s.alexaListingShare,
+      avgContentValueScore: s.avgContentValueScore, repetitionRisk: s.repetitionRisk, readyVerdict: s.readyVerdict,
+    };
+  });
+}
+
+async function uiAudition(id) {
+  const run = (await my.query('SELECT * FROM topic_audition_runs WHERE id = ?', [id]))[0];
+  if (!run) return null;
+  const items = await my.query('SELECT round_no, topic, business_category, topic_cluster, content_type, raw_score, content_value_score, selection_score, decision, decision_reason FROM topic_audition_items WHERE audition_run_id = ? ORDER BY round_no, decision', [id]);
+  return {
+    id: run.id, rounds: run.rounds, limitPerRound: run.limit_per_round, status: run.status, created: dt(run.created_at),
+    summary: my.asJson(run.summary_json), policy: my.asJson(run.policy_json),
+    items: items.map((i) => ({
+      round: i.round_no, topic: i.topic, businessCategory: i.business_category, topicCluster: i.topic_cluster,
+      contentType: i.content_type, rawScore: i.raw_score, contentValueScore: i.content_value_score,
+      selectionScore: i.selection_score, decision: i.decision, reason: i.decision_reason,
+    })),
   };
 }
 
@@ -443,6 +490,7 @@ async function uiArticle(id) {
     my.query("SELECT * FROM review_actions WHERE article_id = ? AND dry_run = 0 ORDER BY created_at DESC", [a.id]),
   ]);
   const clsRow = (await my.query("SELECT content_type, business_category, topic_cluster, confidence, reason, classifier_type, created_at FROM content_classifications WHERE entity_type = 'articles' AND entity_id = ? ORDER BY created_at DESC LIMIT 1", [a.id]))[0];
+  const aqRow = (await my.query('SELECT * FROM article_quality_scores WHERE article_id = ? ORDER BY created_at DESC LIMIT 1', [a.id]))[0];
   const verIds = versions.map((v) => v.id);
   const modelRuns = await my.query(
     `SELECT task_type, model_name, status, started_at, finished_at,
@@ -543,6 +591,19 @@ async function uiArticle(id) {
     overall: overall ? overall.overall_score || 0 : 0,
     ...factMeta(a.fact_publish_readiness),
     contentType: a.content_type, businessCategory: a.business_category, topicCluster: a.topic_cluster,
+    articleQualityScore: a.article_quality_score ?? null,
+    articleQuality: aqRow ? {
+      score: aqRow.article_quality_score, recommendation: aqRow.recommendation,
+      breakdown: [
+        ['卖家痛点契合', aqRow.seller_pain_fit, 20], ['可执行性', aqRow.actionability, 20], ['信息增量', aqRow.information_gain, 20],
+        ['原创性', aqRow.originality, 10], ['结构清晰', aqRow.clarity, 10], ['证据使用', aqRow.evidence_use, 10], ['Flyfus 价值', aqRow.business_usefulness, 10],
+      ],
+      strengths: (my.asJson(aqRow.raw_json) || {}).strengths || [],
+      issues: (my.asJson(aqRow.raw_json) || {}).issues || [],
+      mustFix: (my.asJson(aqRow.raw_json) || {}).mustFix || [],
+      at: dt(aqRow.created_at),
+    } : null,
+    visualPlan: my.asJson(latest.visual_plan_json) || (my.asJson(latest.article_json) || {}).visualPlan || [],
     classification: clsRow ? {
       confidence: clsRow.confidence != null ? Number(clsRow.confidence) : null,
       reason: clsRow.reason || null,
@@ -646,7 +707,11 @@ async function reviewArticle({ id, status, note, actor }) {
   if (!REVIEW_TARGETS.includes(status)) return { code: 400, data: { ok: false, error: `status 非法: ${status}` } };
   const article = (await my.query('SELECT * FROM articles WHERE id = ?', [id]))[0];
   if (!article) return { code: 404, data: { ok: false, error: '未找到文章' } };
-  const violation = checkTransition(article.status, status, note);
+  let violation = checkTransition(article.status, status, note);
+  if (!violation && ['reviewed', 'approved_for_publish'].includes(status)
+      && article.article_quality_score != null && article.article_quality_score < 80) {
+    violation = `文章质量主评分 ${article.article_quality_score} < 80，不得${status === 'reviewed' ? '通过复审' : '批准发布'}（SEO/GEO 不能覆盖质量不足）`;
+  }
   if (violation) return { code: 409, data: { ok: false, error: violation } };
   const now = my.now();
   await my.update('articles', { status, updated_at: now }, 'id = ?', [article.id]);
@@ -679,4 +744,4 @@ async function toggleConfig(table, id, enabled) {
   return { code: 200, data: { ok: true, id, enabled: !!enabled } };
 }
 
-module.exports = { uiBootstrap, uiArticle, uiRun, reviewArticle, toggleConfig, configDoc };
+module.exports = { uiBootstrap, uiArticle, uiRun, reviewArticle, toggleConfig, configDoc, uiAuditions, uiAudition };
