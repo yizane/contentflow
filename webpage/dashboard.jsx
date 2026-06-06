@@ -193,7 +193,7 @@ function RecentArticles({ state, nav }) {
   );
 }
 
-function Dashboard({ state, nav, onAction }) {
+function Dashboard({ state, nav, onAction, toast }) {
   const [days, setDays] = useState([]);
   const [day, setDay] = useState(FLY.DAILY);
   useEffect(() => {
@@ -209,7 +209,7 @@ function Dashboard({ state, nav, onAction }) {
       <div className="page-head" style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
         <div>
           <h1 className="page-title">生产日报</h1>
-          <p className="page-sub">{isToday ? "从最终产出往回看：先看拍板了什么，再逐级回溯找问题。" : `回放 ${day}：最上面是当日最终产出，向下逐级回溯到采集（只读）。`}</p>
+          <p className="page-sub">{isToday ? "按生产顺序看全流程：采集 → 选题 → 生成 → 拍板，异常的行会标红。" : `回放 ${day} 的生产全流程：采集 → 选题 → 生成 → 拍板（只读）。`}</p>
         </div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -218,10 +218,10 @@ function Dashboard({ state, nav, onAction }) {
           <>
             <StatusBar state={state} onAction={onAction} />
             <TodoBoard state={state} nav={nav} />
-            <DayReport date={day} nav={nav} />
+            <DayReport date={day} nav={nav} toast={toast} />
           </>
         ) : (
-          <DayReport date={day} nav={nav} />
+          <DayReport date={day} nav={nav} toast={toast} />
         )}
       </div>
     </div>

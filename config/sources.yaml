@@ -84,36 +84,7 @@ sources:
           - "case study"
           - "PPC optimization"
 
-      - name: "About Amazon - Alexa for Shopping"
-        type: "fetch_page"
-        category: "official_policy"
-        priority: "high"
-        url: "https://www.aboutamazon.com/news/retail/alexa-for-shopping-ai-assistant"
-        site_url: "https://www.aboutamazon.com/news/retail/alexa-for-shopping-ai-assistant"
-        language: "en"
-        requires_auth: false
-        freshness: "policy_update"
-        use_case:
-          - "Alexa for Shopping"
-          - "Amazon AI shopping"
-          - "Rufus renamed"
-          - "AI shopping assistant"
-        notes: "Primary official source for Alexa for Shopping and Rufus/Alexa+ integration."
 
-      - name: "About Amazon - Rufus official announcement"
-        type: "fetch_page"
-        category: "official_policy"
-        priority: "high"
-        url: "https://www.aboutamazon.com/news/retail/amazon-rufus"
-        site_url: "https://www.aboutamazon.com/news/retail/amazon-rufus"
-        language: "en"
-        requires_auth: false
-        freshness: "policy_update"
-        use_case:
-          - "Rufus history"
-          - "Rufus renamed Alexa for Shopping"
-          - "Amazon AI shopping assistant"
-        notes: "Official historical source; page notes Rufus was renamed Alexa for Shopping on May 13, 2026."
 
       - name: "About Amazon News"
         type: "rss"
@@ -150,59 +121,9 @@ sources:
           - "marketplace data"
         notes: "文章 feed（Recent Articles），不等于官方政策源。Feed was auto-discovered and verified locally; if feed fails, fallback to site_url fetch."
 
-      - name: "Retail Dive"
-        type: "rss"
-        category: "retail_ecommerce_news"
-        priority: "medium"
-        url: "https://www.retaildive.com/feeds/news/"
-        site_url: "https://www.retaildive.com/"
-        requires_auth: false
-        freshness: "breaking_news"
-        use_case:
-          - "retail trend"
-          - "Amazon retail news"
-          - "ecommerce policy"
 
-      - name: "Modern Retail"
-        type: "discover_feed_or_fetch"
-        category: "retail_ecommerce_news"
-        priority: "medium"
-        url: "https://www.modernretail.co/"
-        requires_auth: false
-        freshness: "breaking_news"
-        use_case:
-          - "retail media"
-          - "marketplace strategy"
-          - "commerce trend"
 
-      - name: "Digital Commerce 360"
-        type: "discover_feed_or_fetch"
-        category: "retail_ecommerce_news"
-        priority: "medium"
-        url: "https://www.digitalcommerce360.com/"
-        requires_auth: false
-        freshness: "breaking_news"
-        use_case:
-          - "ecommerce data"
-          - "online retail"
-          - "Amazon marketplace"
 
-      - name: "EcommerceBytes"
-        type: "rss"
-        category: "marketplace_news"
-        priority: "medium"
-        url: "https://www.ecommercebytes.com/feed/"
-        site_url: "https://www.ecommercebytes.com/"
-        requires_auth: false
-        freshness: "breaking_news"
-        feed_verified_at: "2026-06-04"
-        feed_discovered_by: "scripts/discover_feeds.js"
-        fallback_type: "fetch_page"
-        notes: "Feed was auto-discovered and verified locally; if feed fails, fallback to site_url fetch."
-        use_case:
-          - "marketplace seller news"
-          - "Amazon seller issues"
-          - "eBay Amazon marketplace comparison"
 
   seo_geo_ai_search:
     description: "SEO、GEO、AI Overview、搜索算法、生成式搜索相关信息源。"
@@ -221,19 +142,6 @@ sources:
           - "structured data"
           - "AI search visibility"
 
-      - name: "Search Engine Land"
-        type: "rss"
-        category: "seo_news"
-        priority: "high"
-        url: "https://searchengineland.com/feed"
-        site_url: "https://searchengineland.com/"
-        requires_auth: false
-        freshness: "breaking_news"
-        use_case:
-          - "AI Overview"
-          - "SEO news"
-          - "Google algorithm"
-          - "GEO"
 
       - name: "Search Engine Journal"
         type: "rss"
@@ -387,68 +295,14 @@ sources:
 
   community_signals:
     description: "社区信号源，只用于发现问题和选题，不作为事实依据。"
+    # 社区源（Reddit 等）已于 2026-06-06 全部停用并清理，需要时在此重新添加
     items:
-      - name: "Reddit - FulfillmentByAmazon"
-        type: "rss"
-        category: "seller_community"
-        priority: "medium"
-        url: "https://www.reddit.com/r/FulfillmentByAmazon/.rss"
-        site_url: "https://www.reddit.com/r/FulfillmentByAmazon/"
-        requires_auth: false
-        freshness: "breaking_news"
-        use_case:
-          - "seller pain point"
-          - "FBA issue"
-          - "policy confusion"
-        notes: "社区内容必须二次核查，不可直接当事实。"
 
-      - name: "Reddit - AmazonSeller"
-        type: "rss"
-        category: "seller_community"
-        priority: "medium"
-        url: "https://www.reddit.com/r/AmazonSeller/.rss"
-        site_url: "https://www.reddit.com/r/AmazonSeller/"
-        requires_auth: false
-        freshness: "breaking_news"
-        use_case:
-          - "seller pain point"
-          - "account issue"
-          - "listing issue"
-        notes: "社区内容必须二次核查，不可直接当事实。"
 
   chinese_crossborder_news:
     description: "中文跨境电商行业源，主要用于选题发现、中文卖家痛点、行业热点追踪，不作为最终事实唯一来源。"
     items:
-      - name: "AMZ123 - 跨境头条"
-        type: "fetch_page"
-        category: "chinese_crossborder_news"
-        priority: "high"
-        url: "https://www.amz123.com/t/"
-        site_url: "https://www.amz123.com/t/"
-        language: "zh-CN"
-        requires_auth: false
-        freshness: "breaking_news"
-        use_case:
-          - "中文跨境热点"
-          - "Amazon seller news"
-          - "平台动态"
-          - "行业痛点"
-        notes: "用于中文选题发现；文章事实需要回到原始来源或官方来源核查。"
 
-      - name: "AMZ123 - 跨境早报"
-        type: "fetch_page"
-        category: "chinese_crossborder_news"
-        priority: "high"
-        url: "https://www.amz123.com/zb"
-        site_url: "https://www.amz123.com/zb"
-        language: "zh-CN"
-        requires_auth: false
-        freshness: "breaking_news"
-        use_case:
-          - "每日早报"
-          - "跨境电商快讯"
-          - "Amazon seller daily news"
-        notes: "适合作为每日选题雷达；不要直接把早报内容改写成文章。"
 
       - name: "AMZ123 - 跨境快讯"
         type: "fetch_page"
@@ -466,114 +320,12 @@ sources:
           - "热点监控"
         notes: "适合发现短时热点；写文前必须二次核查。"
 
-      - name: "AMZ123 - 跨境报告"
-        type: "fetch_page"
-        category: "chinese_crossborder_report"
-        priority: "medium"
-        url: "https://www.amz123.com/report"
-        site_url: "https://www.amz123.com/report"
-        language: "zh-CN"
-        requires_auth: false
-        freshness: "evergreen_blog"
-        use_case:
-          - "行业报告"
-          - "品类趋势"
-          - "市场洞察"
-          - "选品参考"
-        notes: "适合做深度选题和数据线索；报告内数据需标注来源和日期。"
 
-      - name: "雨果跨境 - 首页"
-        type: "discover_feed_or_fetch"
-        category: "chinese_crossborder_news"
-        priority: "high"
-        url: "https://www.cifnews.com/"
-        site_url: "https://www.cifnews.com/"
-        language: "zh-CN"
-        requires_auth: false
-        freshness: "breaking_news"
-        use_case:
-          - "跨境电商资讯"
-          - "Amazon seller news"
-          - "平台政策解读"
-          - "卖家案例"
-        notes: "优先尝试发现 RSS；如果 RSS 不可用，则 fetch 页面。中文行业源不能作为 Amazon 官方事实唯一来源。"
 
-      - name: "雨果跨境 - RSS"
-        type: "discover_feed_or_fetch"
-        category: "chinese_crossborder_news"
-        priority: "medium"
-        url: "https://www.cifnews.com/rss"
-        site_url: "https://www.cifnews.com/"
-        language: "zh-CN"
-        requires_auth: false
-        freshness: "breaking_news"
-        use_case:
-          - "RSS 探测"
-          - "中文跨境资讯"
-        notes: "公开搜索结果显示存在 RSS 订阅页，但实际访问可能返回 405；必须由 discover_feeds.js 本地验证后再决定是否改为 rss。"
 
-      - name: "亿恩网"
-        type: "discover_feed_or_fetch"
-        category: "chinese_crossborder_news"
-        priority: "medium"
-        url: "https://www.ennews.com/"
-        site_url: "https://www.ennews.com/"
-        language: "zh-CN"
-        requires_auth: false
-        freshness: "breaking_news"
-        use_case:
-          - "跨境电商新闻"
-          - "Amazon news"
-          - "平台动态"
-          - "运营干货"
-        notes: "用于选题发现和中文行业表达参考；事实需要二次核查。"
 
-      - name: "卖家之家"
-        type: "discover_feed_or_fetch"
-        category: "chinese_crossborder_news"
-        priority: "medium"
-        url: "https://mjzj.com/"
-        site_url: "https://mjzj.com/"
-        language: "zh-CN"
-        requires_auth: false
-        freshness: "breaking_news"
-        use_case:
-          - "卖家资讯"
-          - "Amazon seller pain point"
-          - "运营工具"
-          - "行业动态"
-        notes: "用于中文卖家痛点发现；不得作为官方政策唯一来源。"
 
-      - name: "跨境知道"
-        type: "discover_feed_or_fetch"
-        category: "chinese_crossborder_news"
-        priority: "medium"
-        url: "https://www.ikjzd.com/"
-        site_url: "https://www.ikjzd.com/"
-        language: "zh-CN"
-        requires_auth: false
-        freshness: "breaking_news"
-        use_case:
-          - "跨境资讯"
-          - "平台政策解读"
-          - "运营干货"
-        notes: "如果站点不可访问或结构变化，则保留为候选源，不影响主流程。Returned 403 during feed discovery (2026-06-04); may require browser-like fetch."
 
-      - name: "白鲸跨境"
-        type: "discover_feed_or_fetch"
-        category: "chinese_crossborder_news"
-        priority: "low"
-        url: "https://kuajing.baijing.cn/"
-        site_url: "https://kuajing.baijing.cn/"
-        language: "zh-CN"
-        requires_auth: false
-        freshness: "breaking_news"
-        use_case:
-          - "出海资讯"
-          - "跨境电商"
-          - "品牌出海"
-          - "独立站"
-        notes: "更偏泛出海和品牌出海，适合作为 P1/P2 选题源。"
 
   search_queries:
     description: "没有稳定 RSS 的专题，用搜索 query 做每日发现。"
@@ -589,26 +341,7 @@ sources:
           - "AI shopping"
           - "Amazon seller impact"
 
-      - name: "Amazon Researched by AI seller"
-        type: "search_query"
-        category: "amazon_rufus"
-        priority: "high"
-        query: "\"Researched by AI\" Amazon seller"
-        freshness: "breaking_news"
-        use_case:
-          - "Amazon AI recommendations"
-          - "AI shopping feature"
 
-      - name: "Amazon COSMO algorithm"
-        type: "search_query"
-        category: "amazon_rufus"
-        priority: "high"
-        query: "Amazon COSMO algorithm product search"
-        freshness: "policy_update"
-        use_case:
-          - "semantic matching"
-          - "Amazon AI search"
-          - "listing optimization"
 
       - name: "Google AI Overview SEO"
         type: "search_query"
@@ -632,16 +365,6 @@ sources:
           - "FBA"
           - "account health"
 
-      - name: "Amazon PPC ACoS trend"
-        type: "search_query"
-        category: "amazon_ads"
-        priority: "medium"
-        query: "Amazon PPC ACoS CPC trend seller advertising"
-        freshness: "policy_update"
-        use_case:
-          - "PPC"
-          - "ACoS"
-          - "advertising cost"
 
 topic_filters:
   include_keywords:

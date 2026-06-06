@@ -438,19 +438,22 @@ async function uiDays(limit = 14) {
   const cnt = async (table) => Object.fromEntries(
     (await my.query(`SELECT DATE(created_at) d, COUNT(*) c FROM ${table} WHERE created_at >= ? GROUP BY DATE(created_at)`, [since]))
       .map((r) => [rc.getDailyKey(new Date(r.d)), r.c]));
-  const [srcBy, topicBy, artBy, runRows, verdictRows] = await Promise.all([
+  const [srcBy, topicBy, artBy, runRows, verdictRows, obsRows] = await Promise.all([
     cnt('source_items'), cnt('topic_candidates'), cnt('articles'),
     my.query("SELECT daily_key, status FROM engine_runs WHERE run_scope = 'daily' AND is_active = 1 AND daily_key >= ?", [since.slice(0, 10)]),
     my.query("SELECT DATE(created_at) d, COUNT(*) c FROM status_transitions WHERE entity_type = 'article' AND to_status IN ('ready_for_review','approved_for_publish','published') AND created_at >= ? GROUP BY DATE(created_at)", [since]),
+    my.query('SELECT daily_key d, COUNT(*) c FROM source_observations WHERE daily_key >= ? GROUP BY daily_key', [since.slice(0, 10)]),
   ]);
   const runBy = {}; runRows.forEach((r) => { runBy[r.daily_key] = runStatus(r.status); });
   const verdictBy = {}; verdictRows.forEach((r) => { verdictBy[rc.getDailyKey(new Date(r.d))] = r.c; });
+  const obsBy = {}; obsRows.forEach((r) => { obsBy[r.d] = r.c; }); // 每日采集真相优先用观察记录
   const days = [];
   for (let i = n - 1; i >= 0; i--) {
     const date = rc.getDailyKey(new Date(Date.now() - i * 86400000));
     days.push({
       date, runStatus: runBy[date] || null,
-      sources: srcBy[date] || 0, topics: topicBy[date] || 0,
+      sources: obsBy[date] != null ? obsBy[date] : (srcBy[date] || 0),
+      topics: topicBy[date] || 0,
       articles: artBy[date] || 0, verdicts: verdictBy[date] || 0,
     });
   }
@@ -497,6 +500,17 @@ async function uiDay(date) {
     my.query(`SELECT event_type, level, message, created_at FROM workflow_events WHERE ${range()} AND level IN ('warning','error') ORDER BY created_at LIMIT 25`),
   ]);
 
+  // 每日采集真相：source_observations 优先（canonical 化后 source_items 不再按天重复插入）
+  const [obsStatus, obsGroups, obsCats, obsTypes, dayRepRows] = await Promise.all([
+    my.query('SELECT observation_status k, COUNT(*) c FROM source_observations WHERE daily_key = ? GROUP BY observation_status', [date]),
+    my.query('SELECT source_group k, COUNT(*) c FROM source_observations WHERE daily_key = ? GROUP BY source_group ORDER BY c DESC', [date]),
+    my.query('SELECT s.business_category k, COUNT(*) c FROM source_observations o LEFT JOIN source_items s ON s.id = o.source_item_id WHERE o.daily_key = ? AND s.business_category IS NOT NULL GROUP BY s.business_category ORDER BY c DESC LIMIT 8', [date]),
+    my.query('SELECT s.content_type k, COUNT(*) c FROM source_observations o LEFT JOIN source_items s ON s.id = o.source_item_id WHERE o.daily_key = ? AND s.content_type IS NOT NULL GROUP BY s.content_type ORDER BY c DESC LIMIT 8', [date]),
+    my.query('SELECT report_json FROM engine_reports WHERE DATE(created_at) = ? ORDER BY created_at DESC LIMIT 1', [date]),
+  ]);
+  const obsTotal = obsStatus.reduce((a, r) => a + r.c, 0);
+  const dayRep = dayRepRows[0] ? my.asJson(dayRepRows[0].report_json) || {} : null;
+
   // 拍板：当日文章状态终局变化
   const VERDICT_STATUS = ['ready_for_review', 'needs_quality_revision', 'approved_for_publish', 'published', 'rejected', 'fact_check_failed'];
   const verdicts = artTransitions.filter((t) => VERDICT_STATUS.includes(t.to_status)).map((t) => ({
@@ -540,13 +554,21 @@ async function uiDay(date) {
       started: dt(r.started_at), finished: dt(r.finished_at), durMs: durMs(r.started_at, r.finished_at),
       articles: r.articles_generated || 0, error: r.error_message || null,
     })),
-    collect: {
-      total: srcStats[0].c,
+    collect: obsTotal > 0 ? {
+      total: obsTotal, basis: 'observations',
+      observed: Object.fromEntries(obsStatus.map((r) => [r.k, r.c])),
+      byGroup: Object.fromEntries(obsGroups.filter((g) => g.k).map((g) => [g.k, g.c])),
+      byCategory: Object.fromEntries(obsCats.map((g) => [g.k, g.c])),
+      byType: Object.fromEntries(obsTypes.map((g) => [g.k, g.c])),
+      failures: srcFails.map((f) => ({ name: f.source_name, status: f.status, http: f.http_status, error: (f.error_message || '').slice(0, 80) })),
+    } : {
+      total: srcStats[0].c, basis: 'items', observed: null,
       byGroup: Object.fromEntries(srcGroups.filter((g) => g.k).map((g) => [g.k, g.c])),
       byCategory: Object.fromEntries(srcCats.map((g) => [g.k, g.c])),
       byType: Object.fromEntries(srcTypes.map((g) => [g.k, g.c])),
       failures: srcFails.map((f) => ({ name: f.source_name, status: f.status, http: f.http_status, error: (f.error_message || '').slice(0, 80) })),
     },
+    sourceReport: dayRep ? { coverage: dayRep.sourceObservationCoverage || null, lanes: dayRep.sourceLanes || null } : null,
     topics: {
       created: topicsNew.count,
       top: topicsNew.rows.slice(0, 10).map((t) => ({
@@ -589,14 +611,18 @@ function deEnt(s) {
 }
 
 // 当日采集明细：按来源分组的条目列表（日报内嵌浏览，不跳页）
+// 优先 source_observations（每日采集真相）；无观察记录的历史日回退 source_items.created_at
 async function uiDaySources(date) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
   const a = `${date} 00:00:00`;
   const b = `${date} 23:59:59.999`;
-  const [rows, logs] = await Promise.all([
-    my.query('SELECT source_name, source_group, source_url, title, business_category, content_type, created_at FROM source_items WHERE created_at >= ? AND created_at <= ? ORDER BY source_name, created_at LIMIT 600', [a, b]),
+  const [obsRows, logs] = await Promise.all([
+    my.query('SELECT source_name, source_group, source_lane, canonical_url, source_url, title, observation_status, created_at FROM source_observations WHERE daily_key = ? ORDER BY source_name, created_at LIMIT 600', [date]),
     my.query('SELECT source_name, status, http_status, error_message FROM source_collection_logs WHERE created_at >= ? AND created_at <= ?', [a, b]),
   ]);
+  const basis = obsRows.length > 0 ? 'observations' : 'items';
+  const rows = obsRows.length > 0 ? obsRows
+    : await my.query('SELECT source_name, source_group, source_url, title, business_category, content_type, created_at FROM source_items WHERE created_at >= ? AND created_at <= ? ORDER BY source_name, created_at LIMIT 600', [a, b]);
   const logBy = {};
   logs.forEach((l) => { logBy[l.source_name] = { status: l.status, http: l.http_status, error: (l.error_message || '').slice(0, 80) }; });
   const groups = {};
@@ -606,8 +632,10 @@ async function uiDaySources(date) {
     groups[k].count++;
     if (groups[k].items.length < 50) {
       groups[k].items.push({
-        title: deEnt(r.title).slice(0, 90) || '(无标题)', url: r.source_url,
-        category: r.business_category, type: r.content_type, t: dt(r.created_at),
+        title: deEnt(r.title).slice(0, 90) || '(无标题)', url: r.source_url || r.canonical_url,
+        category: r.business_category || null, type: r.content_type || null,
+        lane: r.source_lane || null, obsStatus: r.observation_status || null,
+        t: dt(r.created_at),
       });
     }
   }
@@ -617,7 +645,155 @@ async function uiDaySources(date) {
   }
   const sources = Object.values(groups).map((g) => ({ ...g, log: logBy[g.name] || null }))
     .sort((x, y) => y.count - x.count);
-  return { date, total: rows.length, truncated: rows.length >= 600, sources };
+  return { date, basis, total: rows.length, truncated: rows.length >= 600, sources };
+}
+
+// ---------- 数据源（canonical 素材库 + 观察记录）----------
+// source_items 是 canonical 素材表（同一 URL 不重复插入）；每日采集真相在 source_observations。
+
+const LANE_KEYS = ['news', 'policy', 'knowledge'];
+
+// 数据源总览：最近一次 engine_report 的覆盖统计 + canonical 各线计数
+async function uiSourcesOverview() {
+  const [repRows, laneRows] = await Promise.all([
+    my.query('SELECT report_json, created_at FROM engine_reports ORDER BY created_at DESC LIMIT 1'),
+    my.query('SELECT lane, usage_status, COUNT(*) c FROM source_canonical_items GROUP BY lane, usage_status'),
+  ]);
+  const j = repRows[0] ? my.asJson(repRows[0].report_json) || {} : {};
+  const laneCounts = {};
+  let canonicalTotal = 0;
+  for (const r of laneRows) {
+    const lane = r.lane || 'unknown';
+    if (!laneCounts[lane]) laneCounts[lane] = { total: 0, byStatus: {} };
+    laneCounts[lane].total += r.c;
+    laneCounts[lane].byStatus[r.usage_status || 'unknown'] = r.c;
+    canonicalTotal += r.c;
+  }
+  return {
+    coverage: j.sourceObservationCoverage || null,
+    lanes: j.sourceLanes || null,
+    reportAt: repRows[0] ? dt(repRows[0].created_at) : null,
+    laneCounts, canonicalTotal,
+  };
+}
+
+// canonical 素材列表（lane / usage_status / 来源 过滤，join source_items 拿展示字段）
+async function uiCanonicalSources({ lane, status, source, limit = 120 } = {}) {
+  const where = [];
+  const args = [];
+  if (lane && LANE_KEYS.includes(lane)) { where.push('c.lane = ?'); args.push(lane); }
+  if (status) { where.push('c.usage_status = ?'); args.push(String(status).slice(0, 30)); }
+  // 来源下拉的可选项：在 lane/status 条件下聚合（不含 source 自身条件，便于切换）
+  const facetCond = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const sourceFacet = await my.query(
+    `SELECT s.source_name k, COUNT(*) c FROM source_canonical_items c
+     LEFT JOIN source_items s ON s.id = c.source_item_id
+     ${facetCond} GROUP BY s.source_name ORDER BY c DESC LIMIT 60`, [...args]);
+  if (source) { where.push('s.source_name = ?'); args.push(String(source).slice(0, 80)); }
+  const rows = await my.query(
+    `SELECT c.canonical_url_hash, c.canonical_url, c.source_item_id, c.first_seen_at, c.last_seen_at,
+            c.seen_count, c.source_count, c.lane, c.usage_status, c.used_at, c.used_by_article_id,
+            c.times_in_prompt, c.reactivated_at,
+            s.source_name, s.source_group, s.title, s.source_url, s.summary
+     FROM source_canonical_items c
+     LEFT JOIN source_items s ON s.id = c.source_item_id
+     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+     ORDER BY c.last_seen_at DESC LIMIT ${Math.min(300, Math.max(1, limit))}`, args);
+  const items = rows.map((r) => ({
+    hash: r.canonical_url_hash, url: r.source_url || r.canonical_url, itemId: r.source_item_id,
+    lane: r.lane, usageStatus: r.usage_status,
+    firstSeen: dt(r.first_seen_at), lastSeen: dt(r.last_seen_at),
+    seenCount: r.seen_count, sourceCount: r.source_count,
+    timesInPrompt: r.times_in_prompt, reactivatedAt: dt(r.reactivated_at),
+    usedAt: dt(r.used_at), usedByArticleId: r.used_by_article_id,
+    sourceName: r.source_name, sourceGroup: r.source_group,
+    title: deEnt(r.title).slice(0, 110) || '(无标题)', summary: deEnt(r.summary).slice(0, 160),
+  }));
+  return { items, sourceFacet: sourceFacet.filter((f) => f.k).map((f) => ({ name: f.k, count: f.c })) };
+}
+
+// 观察记录（每日采集真相），按 daily_key / engine_run_id / observation_status 过滤
+async function uiObservations({ date, runId, status, limit = 200 } = {}) {
+  const where = [];
+  const args = [];
+  if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) { where.push('daily_key = ?'); args.push(date); }
+  if (runId) { where.push('engine_run_id = ?'); args.push(String(runId).slice(0, 80)); }
+  if (status) { where.push('observation_status = ?'); args.push(String(status).slice(0, 40)); }
+  const cond = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const [rows, statRows] = await Promise.all([
+    my.query(
+      `SELECT id, engine_run_id, daily_key, source_item_id, source_name, source_group, source_lane,
+              title, canonical_url, observation_status, duplicate_reason, created_at
+       FROM source_observations ${cond} ORDER BY created_at DESC LIMIT ${Math.min(500, Math.max(1, limit))}`, args),
+    my.query(`SELECT observation_status k, COUNT(*) c FROM source_observations ${cond} GROUP BY observation_status`, args),
+  ]);
+  return {
+    byStatus: Object.fromEntries(statRows.map((r) => [r.k, r.c])),
+    items: rows.map((r) => ({
+      id: r.id, runId: r.engine_run_id, day: r.daily_key, itemId: r.source_item_id,
+      sourceName: r.source_name, sourceGroup: r.source_group, lane: r.source_lane,
+      title: deEnt(r.title).slice(0, 110) || '(无标题)', url: r.canonical_url,
+      status: r.observation_status, dupReason: (r.duplicate_reason || '').slice(0, 120),
+      t: dt(r.created_at),
+    })),
+  };
+}
+
+// ---------- 模型调用 I/O（调试台：每一步 AI 进了什么、出了什么）----------
+// Viewer 只绑 127.0.0.1，本地调试台放开 prompt/raw_response 全文。
+
+async function uiModelRuns({ taskType, runId, articleId, limit = 50 } = {}) {
+  const where = [];
+  const args = [];
+  if (taskType) { where.push('task_type = ?'); args.push(String(taskType).slice(0, 50)); }
+  if (runId) { where.push('engine_run_id = ?'); args.push(String(runId).slice(0, 80)); }
+  if (articleId) { where.push('article_id = ?'); args.push(String(articleId).slice(0, 80)); }
+  const cond = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const [rows, types] = await Promise.all([
+    my.query(`SELECT id, engine_run_id, article_id, task_type, model_provider, model_name, status,
+                     started_at, finished_at, error_message,
+                     CHAR_LENGTH(task_prompt) prompt_len, CHAR_LENGTH(raw_response) response_len
+              FROM model_runs ${cond} ORDER BY started_at DESC LIMIT ${Math.min(200, Math.max(1, limit))}`, args),
+    my.query('SELECT task_type k, COUNT(*) c FROM model_runs GROUP BY task_type ORDER BY c DESC'),
+  ]);
+  return {
+    byType: Object.fromEntries(types.map((t) => [t.k, t.c])),
+    items: rows.map((r) => ({
+      id: r.id, runId: r.engine_run_id, articleId: r.article_id, taskType: r.task_type,
+      provider: r.model_provider, model: r.model_name, status: r.status,
+      started: dt(r.started_at), durMs: durMs(r.started_at, r.finished_at),
+      error: (r.error_message || '').slice(0, 160) || null,
+      promptLen: r.prompt_len || 0, responseLen: r.response_len || 0,
+    })),
+  };
+}
+
+async function uiModelRun(id) {
+  const r = (await my.query('SELECT * FROM model_runs WHERE id = ?', [id]))[0];
+  if (!r) return null;
+  return {
+    id: r.id, runId: r.engine_run_id, articleId: r.article_id, taskType: r.task_type,
+    provider: r.model_provider, model: r.model_name, status: r.status,
+    started: dt(r.started_at), finished: dt(r.finished_at), durMs: durMs(r.started_at, r.finished_at),
+    error: r.error_message || null,
+    prompt: r.task_prompt || '', response: r.raw_response || '',
+    parsed: my.asJson(r.parsed_output_json),
+  };
+}
+
+// ---------- 提示词/Schema 在线编辑 ----------
+// 运行时 prompt 从 app_configs 读（config_lib），文件只是 seed；
+// updated_by != 'file-sync' 时 config:sync 不会覆盖（要回到文件版本用 --force）。
+async function saveConfigDoc(key, content, actor = 'web') {
+  if (typeof content !== 'string' || !content.trim()) return { code: 400, data: { ok: false, error: '内容不能为空' } };
+  const row = (await my.query('SELECT config_key, config_type, version FROM app_configs WHERE config_key = ?', [key]))[0];
+  if (!row) return { code: 404, data: { ok: false, error: '未找到配置文档' } };
+  if (row.config_type === 'schema') {
+    try { JSON.parse(content); } catch (e) { return { code: 400, data: { ok: false, error: `Schema 必须是合法 JSON：${e.message}` } }; }
+  }
+  const sha = require('crypto').createHash('sha256').update(content).digest('hex');
+  await my.update('app_configs', { content, content_sha256: sha, version: row.version + 1, updated_by: actor, updated_at: my.now() }, 'config_key = ?', [key]);
+  return { code: 200, data: { ok: true, key, version: row.version + 1, note: '下一次任务启动即生效；config:sync 不会覆盖 Web 修改（恢复文件版本用 config:sync --force）' } };
 }
 
 // ---------- Topic Audition（选题压力测试结果，只读）----------
@@ -934,4 +1110,4 @@ async function toggleConfig(table, id, enabled) {
   return { code: 200, data: { ok: true, id, enabled: !!enabled } };
 }
 
-module.exports = { uiBootstrap, uiArticle, uiRun, reviewArticle, toggleConfig, configDoc, uiAuditions, uiAudition, uiDays, uiDay, uiDaySources };
+module.exports = { uiBootstrap, uiArticle, uiRun, reviewArticle, toggleConfig, configDoc, uiAuditions, uiAudition, uiDays, uiDay, uiDaySources, uiSourcesOverview, uiCanonicalSources, uiObservations, uiModelRuns, uiModelRun, saveConfigDoc };

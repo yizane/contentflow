@@ -189,11 +189,59 @@ async function listRunActions(q) {
 function readBody(req) {
   return new Promise((resolve) => {
     let data = '';
-    req.on('data', (c) => { data += c; if (data.length > 65536) req.destroy(); });
+    req.on('data', (c) => { data += c; if (data.length > 524288) req.destroy(); }); // 512KB：提示词编辑需要
     req.on('end', () => {
       try { resolve(JSON.parse(data || '{}')); } catch (_) { resolve({}); }
     });
   });
+}
+
+// ---------- 单步重跑（Web 控制台）----------
+// 白名单：step key → pipeline CLI。绝不透传任意命令/参数。
+const STEP_CMDS = {
+  collect:   { file: 'pipeline/sources_collect.js',       label: '采集来源' },
+  classify:  { file: 'pipeline/content_classify.js',      label: '内容分类' },
+  topics:    { file: 'pipeline/topics_generate.js',       label: '生成主题池' },
+  jobs:      { file: 'pipeline/jobs_create.js',           label: '组合选题' },
+  generate:  { file: 'pipeline/jobs_run.js',              label: '生成文章' },
+  factcheck: { file: 'pipeline/factcheck_run.js',         label: '事实核查' },
+  sourcesfix:{ file: 'pipeline/sources_fix.js',           label: '自动补源' },
+  channels:  { file: 'pipeline/channels_generate.js',     label: '渠道改写' },
+  score:     { file: 'pipeline/score_seo_geo.js',         label: 'SEO/GEO 评分' },
+  quality:   { file: 'pipeline/articles_quality_score.js',label: '质量主评分' },
+  report:    { file: 'engine_report.js',                  label: '生产报告' },
+};
+const stepJobs = {}; // step → { running, startedAt, finishedAt, exitCode, log: [...last 200 lines] }
+
+function startStep(step) {
+  const cmd = STEP_CMDS[step];
+  if (!cmd) return { code: 400, data: { ok: false, error: `未知步骤: ${step}` } };
+  if (stepJobs[step] && stepJobs[step].running) {
+    return { code: 409, data: { ok: false, error: `${cmd.label} 已在运行中` } };
+  }
+  const job = { step, label: cmd.label, running: true, startedAt: new Date().toISOString(), finishedAt: null, exitCode: null, log: [] };
+  stepJobs[step] = job;
+  const child = spawn('node', [path.join(ROOT, 'scripts', cmd.file)], { cwd: ROOT, env: process.env });
+  const push = (chunk) => {
+    for (const line of String(chunk).split('\n')) {
+      if (!line.trim()) continue;
+      job.log.push(line.slice(0, 400));
+      if (job.log.length > 500) job.log.shift();
+    }
+  };
+  child.stdout.on('data', push);
+  child.stderr.on('data', push);
+  child.on('exit', (code) => { job.running = false; job.exitCode = code; job.finishedAt = new Date().toISOString(); });
+  child.on('error', (e) => { job.running = false; job.exitCode = -1; job.finishedAt = new Date().toISOString(); job.log.push(`spawn 失败: ${e.message}`); });
+  logger.log(`[控制台] 单步重跑 ${step}（${cmd.label}）`, { name: 'viewer' });
+  return { code: 202, data: { ok: true, accepted: true, step, label: cmd.label } };
+}
+
+function stepStatus() {
+  return Object.fromEntries(Object.entries(stepJobs).map(([k, j]) => [k, {
+    label: j.label, running: j.running, startedAt: j.startedAt, finishedAt: j.finishedAt,
+    exitCode: j.exitCode, lastLines: j.log.slice(-8),
+  }]));
 }
 
 async function latestReport() {
@@ -256,6 +304,42 @@ const server = http.createServer(async (req, res) => {
     if ((m = p.match(/^\/api\/ui\/day\/(\d{4}-\d{2}-\d{2})\/sources$/))) {
       const d = await ui.uiDaySources(m[1]);
       return d ? json(res, 200, { ok: true, detail: d }) : json(res, 404, { ok: false, error: 'bad date' });
+    }
+    if (p === '/api/ui/sources') {
+      const [overview, canon] = await Promise.all([
+        ui.uiSourcesOverview(),
+        ui.uiCanonicalSources({ lane: q.get('lane') || '', status: q.get('status') || '', source: q.get('source') || '', limit: parseInt(q.get('limit') || '120', 10) }),
+      ]);
+      return json(res, 200, { ok: true, overview, items: canon.items, sourceFacet: canon.sourceFacet });
+    }
+    if (p === '/api/ui/observations') {
+      const d = await ui.uiObservations({ date: q.get('date') || '', runId: q.get('run') || '', status: q.get('status') || '', limit: parseInt(q.get('limit') || '200', 10) });
+      return json(res, 200, { ok: true, ...d });
+    }
+    // ---------- Web 控制台 ----------
+    if (p === '/api/step/run' && req.method === 'POST') {
+      const body = await readBody(req);
+      const r = startStep(String(body.step || ''));
+      return json(res, r.code, r.data);
+    }
+    if (p === '/api/step/status') return json(res, 200, { ok: true, steps: stepStatus() });
+    if ((m = p.match(/^\/api\/step\/log\/([a-z]+)$/))) {
+      const j = stepJobs[m[1]];
+      return j ? json(res, 200, { ok: true, step: m[1], label: j.label, running: j.running, exitCode: j.exitCode, log: j.log })
+               : json(res, 404, { ok: false, error: '该步骤还没有运行记录' });
+    }
+    if (p === '/api/ui/model-runs') {
+      const d = await ui.uiModelRuns({ taskType: q.get('task') || '', runId: q.get('run') || '', articleId: q.get('article') || '', limit: parseInt(q.get('limit') || '50', 10) });
+      return json(res, 200, { ok: true, ...d });
+    }
+    if ((m = p.match(/^\/api\/ui\/model-runs\/([\w-]+)$/))) {
+      const d = await ui.uiModelRun(m[1]);
+      return d ? json(res, 200, { ok: true, modelRun: d }) : json(res, 404, { ok: false, error: 'model run 不存在' });
+    }
+    if (p === '/api/config/doc/save' && req.method === 'POST') {
+      const body = await readBody(req);
+      const r = await ui.saveConfigDoc(String(body.key || ''), body.content, body.actor || 'web');
+      return json(res, r.code, r.data);
     }
     if (p === '/api/topic-auditions' && req.method === 'GET') {
       return json(res, 200, { ok: true, auditions: await ui.uiAuditions(parseInt(q.get('limit') || '10', 10)) });
@@ -325,7 +409,9 @@ const server = http.createServer(async (req, res) => {
       const ext = path.extname(abs);
       const mime = { '.html': 'text/html', '.js': 'application/javascript', '.jsx': 'application/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.png': 'image/png' }[ext] || 'text/plain';
       const binary = ['.ico', '.png'].includes(ext);
-      res.writeHead(200, { 'Content-Type': binary ? mime : `${mime}; charset=utf-8` });
+      // 调试台代码改动频繁：html/js/jsx 不缓存，避免浏览器拿旧版页面
+      const cache = binary ? 'max-age=86400' : 'no-cache';
+      res.writeHead(200, { 'Content-Type': binary ? mime : `${mime}; charset=utf-8`, 'Cache-Control': cache });
       return res.end(fs.readFileSync(abs));
     }
     json(res, 404, { ok: false, error: 'not found' });

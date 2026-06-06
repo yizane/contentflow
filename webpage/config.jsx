@@ -3,12 +3,12 @@
    ============================================================ */
 function ConfigMgmt({ nav, params, toast }) {
   const [sub, setSub] = useState("keywords");
-  const SUBS = [["keywords", "关键词库", "bulb"], ["sources", "采集源", "rss"], ["policies", "策略文档", "doc2"]];
+  const SUBS = [["keywords", "关键词库", "bulb"], ["policies", "策略文档", "doc2"]];
   return (
     <div className="page fade-in">
       <div className="page-head">
         <h1 className="page-title">配置管理</h1>
-        <p className="page-sub">维护关键词、采集源与策略文档。配置修改在下一次运行生效，不影响当前运行。</p>
+        <p className="page-sub">维护关键词与策略文档。采集源的启用/停用在「数据源 → 采集源配置」。配置修改在下一次运行生效。</p>
       </div>
       <div style={{ display: "flex", gap: 22, alignItems: "flex-start" }}>
         <div style={{ flex: "0 0 180px", display: "flex", flexDirection: "column", gap: 3, position: "sticky", top: 0 }}>
@@ -21,7 +21,6 @@ function ConfigMgmt({ nav, params, toast }) {
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           {sub === "keywords" && <Keywords toast={toast} />}
-          {sub === "sources" && <Sources toast={toast} />}
           {sub === "policies" && <Policies toast={toast} />}
         </div>
       </div>
@@ -80,12 +79,32 @@ function Keywords({ toast }) {
   );
 }
 
-function Sources({ toast }) {
+// counts：可选，{来源名: 库内素材数}（数据源页传入，配置时能看到每个源实际贡献了多少素材）
+function Sources({ toast, counts }) {
   const [list, setList] = useState(FLY.CONFIG_SOURCES);
   const [busyId, setBusyId] = useState(null);
+  const [grp, setGrp] = useState("");   // 分组过滤
+  const [en, setEn] = useState("");     // 启用状态过滤："" | "on" | "off"
   // 「刷新数据」全局重载后同步最新配置
   useEffect(() => { setList(FLY.CONFIG_SOURCES); }, [FLY.CONFIG_SOURCES]);
   const HEALTH = { ok: ["健康", "ok"], warn: ["不稳定", "warn"], bad: ["持续失败", "bad"], mut: ["未采集", "mut"] };
+
+  // 分组聚合（带计数），按数量降序
+  const groupFacet = useMemo(() => {
+    const m = {};
+    list.forEach((s) => { if (s.group) m[s.group] = (m[s.group] || 0) + 1; });
+    return Object.entries(m).sort((a, b) => b[1] - a[1]);
+  }, [list]);
+  const onCount = list.filter((s) => s.enabled).length;
+
+  // 过滤 + 排序：启用的在前，未启用的排后面；组内按分组、名称稳定排
+  const rows = useMemo(() => list
+    .filter((s) => (!grp || s.group === grp) && (en === "" || (en === "on" ? s.enabled : !s.enabled)))
+    .slice()
+    .sort((a, b) => (b.enabled ? 1 : 0) - (a.enabled ? 1 : 0)
+      || String(a.group || "").localeCompare(String(b.group || ""))
+      || String(a.name).localeCompare(String(b.name))),
+  [list, grp, en]);
   const toggle = async (s) => {
     setBusyId(s.id);
     try {
@@ -102,17 +121,39 @@ function Sources({ toast }) {
   };
   return (
     <Card>
-      <CardHead icon="rss" title="采集源" hint={`${list.filter(s => s.enabled).length} / ${list.length} 启用`} />
+      <CardHead icon="rss" title="采集源" hint={`${onCount} / ${list.length} 启用 · 停用后下次运行不再采集`} />
+      {/* 过滤：启用状态 + 分组 */}
+      <div style={{ padding: "9px 16px", display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center", borderBottom: "1px solid var(--line-soft)" }}>
+        {[["", `全部 ${list.length}`], ["on", `已启用 ${onCount}`], ["off", `未启用 ${list.length - onCount}`]].map(([k, label]) => (
+          <button key={k} onClick={() => setEn(k)} className="chip"
+            style={{ cursor: "pointer", height: 24, fontWeight: 700, border: en === k ? "1px solid var(--brand-300)" : "1px solid var(--line)", background: en === k ? "var(--brand-50)" : "var(--mut-soft)", color: en === k ? "var(--brand-700)" : "var(--ink-2)" }}>
+            {label}
+          </button>
+        ))}
+        <span style={{ borderLeft: "1px solid var(--line)", height: 18, margin: "0 5px" }} />
+        <button onClick={() => setGrp("")} className="chip"
+          style={{ cursor: "pointer", height: 24, fontWeight: 700, border: !grp ? "1px solid var(--brand-300)" : "1px solid var(--line)", background: !grp ? "var(--brand-50)" : "var(--mut-soft)", color: !grp ? "var(--brand-700)" : "var(--ink-2)" }}>
+          全部分组
+        </button>
+        {groupFacet.map(([g, c]) => (
+          <button key={g} onClick={() => setGrp(grp === g ? "" : g)} className="chip"
+            style={{ cursor: "pointer", height: 24, fontWeight: 600, border: grp === g ? "1px solid var(--brand-300)" : "1px solid var(--line)", background: grp === g ? "var(--brand-50)" : "var(--mut-soft)", color: grp === g ? "var(--brand-700)" : "var(--ink-2)" }}>
+            {FLY.sourceGroup(g)}<span style={{ opacity: .6, marginLeft: 3 }}>{c}</span>
+          </button>
+        ))}
+      </div>
       <table className="tbl">
-        <thead><tr><th>源名称</th><th style={{ width: 170 }}>分组</th><th style={{ width: 130 }}>类型</th><th style={{ width: 100 }}>健康度</th><th style={{ width: 80 }}>启用</th></tr></thead>
+        <thead><tr><th>源名称</th><th style={{ width: 150 }}>分组</th><th style={{ width: 120 }}>类型</th>{counts && <th style={{ width: 84 }} title="该来源在素材库（canonical 去重后）的条数">库内素材</th>}<th style={{ width: 96 }}>健康度</th><th style={{ width: 72 }}>启用</th></tr></thead>
         <tbody>
-          {list.map((s) => {
+          {rows.map((s) => {
             const h = HEALTH[s.health] || HEALTH.mut;
+            const n = counts ? (counts[s.name] || 0) : null;
             return (
               <tr key={s.id} style={{ opacity: s.enabled ? 1 : .55 }}>
                 <td className="row-title">{s.name}</td>
-                <td><span className="chip mono" style={{ height: 22, fontSize: 11 }}>{s.group}</span></td>
+                <td><span className="chip" style={{ height: 22, fontSize: 11 }} title={s.group}>{FLY.sourceGroup(s.group)}</span></td>
                 <td className="muted mono" style={{ fontSize: 11 }}>{s.type}</td>
+                {counts && <td className="tnum" style={{ fontWeight: 700, color: n > 0 ? "var(--ink)" : "var(--ink-4)" }}>{n}</td>}
                 <td><Badge tone={h[1]} dot={h[1] !== "mut"}>{h[0]}</Badge></td>
                 <td><Toggle on={s.enabled} busy={busyId === s.id} onClick={() => toggle(s)} /></td>
               </tr>
@@ -155,11 +196,32 @@ const POLICY_DESC = {
   keywords_csv: "关键词库源文件：config_keywords 表的同步来源（CSV）",
 };
 
-function PolicyViewer({ doc, name, onClose }) {
+function PolicyViewer({ doc, name, onClose, toast, onSaved }) {
   const isPrompt = doc && doc.type === "prompt";
+  const [edit, setEdit] = useState(false);
+  const [text, setText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const startEdit = () => { setText(doc.content); setEdit(true); };
+  const save = async () => {
+    setSaving(true);
+    try {
+      const r = await FLY.saveDoc(doc.key, text);
+      toast && toast(`已保存 v${r.version} · 下一次任务启动即生效`, { icon: "checkCircle", color: "var(--ok-solid)", dur: 4500 });
+      setEdit(false);
+      onSaved && onSaved({ ...doc, content: text, version: `v${r.version}`, by: "web" });
+    } catch (e) {
+      toast && toast(`保存失败：${(e.data && e.data.error) || e.message}`, { icon: "xCircle", color: "var(--bad-solid)", dur: 5500 });
+    } finally { setSaving(false); }
+  };
   return (
     <Modal title={name} wide onClose={onClose}
-      footer={<Btn kind="ghost" onClick={onClose}>关闭</Btn>}>
+      footer={edit ? <>
+        <Btn kind="ghost" onClick={() => setEdit(false)} disabled={saving}>取消编辑</Btn>
+        <Btn kind="pri" icon="check" onClick={save} disabled={saving || !text.trim() || text === doc.content}>{saving ? "保存中…" : "保存（下次任务生效）"}</Btn>
+      </> : <>
+        {doc && <Btn kind="ghost" icon="sliders" onClick={startEdit}>编辑</Btn>}
+        <Btn kind="ghost" onClick={onClose} style={{ marginLeft: "auto" }}>关闭</Btn>
+      </>}>
       {!doc ? (
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "30px 0", justifyContent: "center", color: "var(--ink-3)", fontWeight: 600 }}>
           <span className="spin" style={{ display: "flex" }}><Icon name="refresh" size={16} /></span>正在加载文档内容…
@@ -169,20 +231,32 @@ function PolicyViewer({ doc, name, onClose }) {
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
             <span className="chip" style={{ height: 22, fontSize: 11.5 }}>{{ prompt: "Prompt", schema: "Schema", yaml_doc: "Policy" }[doc.type] || doc.type}</span>
             <span className="mono tnum" style={{ fontSize: 12, fontWeight: 700 }}>{doc.version}</span>
-            <span className="mono" style={{ fontSize: 11.5, color: "var(--ink-4)" }}>更新 {doc.updated} · {doc.by}</span>
-            <span className="mono" style={{ fontSize: 11.5, color: "var(--ink-4)", marginLeft: "auto" }}>{doc.content.length.toLocaleString()} 字符</span>
+            <span className="mono" style={{ fontSize: 11.5, color: "var(--ink-4)" }}>更新 {doc.updated} · {doc.by === "web" ? "Web 修改" : doc.by}</span>
+            {doc.by === "web" && <span className="chip" style={{ height: 20, fontSize: 10.5, background: "var(--warn-soft)", borderColor: "var(--warn-line)", color: "var(--warn)" }}>已被 Web 修改 · sync 不覆盖</span>}
+            <span className="mono" style={{ fontSize: 11.5, color: "var(--ink-4)", marginLeft: "auto" }}>{(edit ? text : doc.content).length.toLocaleString()} 字符</span>
           </div>
-          {POLICY_DESC[doc.key] && (
+          {POLICY_DESC[doc.key] && !edit && (
             <div style={{ display: "flex", gap: 9, padding: "10px 13px", marginBottom: 12, background: "var(--brand-50)", border: "1px solid var(--brand-200)", borderRadius: 9, fontSize: 12.5, color: "var(--ink-2)", lineHeight: 1.55 }}>
               <Icon name="bulb" size={15} style={{ color: "var(--brand-600)", flex: "0 0 auto", marginTop: 1 }} />
               {POLICY_DESC[doc.key]}
             </div>
           )}
-          <div style={{ maxHeight: "52vh", overflow: "auto", border: "1px solid var(--line)", borderRadius: 10, background: isPrompt ? "var(--surface)" : "var(--surface-2)" }}>
-            {isPrompt
-              ? <div className="prose" style={{ padding: "14px 18px", fontSize: 13.5 }} dangerouslySetInnerHTML={{ __html: FLY.mdToHtml(doc.content) }} />
-              : <pre className="mono" style={{ margin: 0, padding: "14px 16px", fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word", color: "var(--ink-2)" }}>{doc.content}</pre>}
-          </div>
+          {edit && (
+            <div style={{ display: "flex", gap: 9, padding: "9px 13px", marginBottom: 10, background: "var(--warn-soft)", border: "1px solid var(--warn-line)", borderRadius: 9, fontSize: 12, color: "var(--warn)", lineHeight: 1.5 }}>
+              <Icon name="alert" size={14} style={{ flex: "0 0 auto", marginTop: 1 }} />
+              直接编辑生产提示词：保存后下一次任务启动即生效；config:sync 不会覆盖 Web 修改，恢复仓库文件版本需 config:sync --force。
+            </div>
+          )}
+          {edit ? (
+            <textarea className="mono" value={text} onChange={(e) => setText(e.target.value)} spellCheck={false}
+              style={{ width: "100%", height: "52vh", padding: "14px 16px", fontSize: 12.5, lineHeight: 1.6, border: "1px solid var(--brand-300)", borderRadius: 10, background: "var(--surface)", color: "var(--ink)", resize: "vertical", boxSizing: "border-box", outline: "none" }} />
+          ) : (
+            <div style={{ maxHeight: "52vh", overflow: "auto", border: "1px solid var(--line)", borderRadius: 10, background: isPrompt ? "var(--surface)" : "var(--surface-2)" }}>
+              {isPrompt
+                ? <div className="prose" style={{ padding: "14px 18px", fontSize: 13.5 }} dangerouslySetInnerHTML={{ __html: FLY.mdToHtml(doc.content) }} />
+                : <pre className="mono" style={{ margin: 0, padding: "14px 16px", fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word", color: "var(--ink-2)" }}>{doc.content}</pre>}
+            </div>
+          )}
         </div>
       )}
     </Modal>
@@ -206,7 +280,7 @@ function Policies({ toast }) {
       <CardHead icon="doc2" title="策略文档" hint="prompt / schema / policy 版本（来自 app_configs）" />
       <div style={{ margin: "12px 16px 0", display: "flex", gap: 9, padding: "10px 13px", background: "var(--mut-soft)", border: "1px solid var(--line)", borderRadius: 9, fontSize: 12.5, color: "var(--ink-2)", lineHeight: 1.5 }}>
         <Icon name="dot" size={15} style={{ color: "var(--ink-3)", flex: "0 0 auto", marginTop: 1 }} />
-        点击任意文档查看完整内容。文档由仓库文件经 <code className="mono">npm run config:sync</code> 同步入库，Web 端在线编辑即将开放。
+        点击任意文档查看与<b>在线编辑</b>。运行时从数据库读取：Web 保存后下一次任务启动即生效；config:sync 不覆盖 Web 修改。
       </div>
       <table className="tbl">
         <thead><tr><th>文档 / 用途</th><th style={{ width: 76 }}>类型</th><th style={{ width: 56 }}>版本</th><th style={{ width: 120 }}>更新时间</th><th style={{ width: 80 }}></th></tr></thead>
@@ -229,9 +303,11 @@ function Policies({ toast }) {
           ))}
         </tbody>
       </table>
-      {viewing && <PolicyViewer doc={viewing.doc} name={viewing.name} onClose={() => setViewing(null)} />}
+      {viewing && <PolicyViewer doc={viewing.doc} name={viewing.name} toast={toast}
+        onSaved={(doc) => setViewing((v) => (v ? { ...v, doc } : v))}
+        onClose={() => setViewing(null)} />}
     </Card>
   );
 }
 
-Object.assign(window, { ConfigMgmt });
+Object.assign(window, { ConfigMgmt, Sources });

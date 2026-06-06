@@ -218,12 +218,33 @@
     search_queries: "搜索抓取",
   };
 
+  // 数据源三线（lane）与素材使用状态
+  const LANE_META = {
+    news: { text: "新闻线", tone: "info", hint: "时效性新闻，72 小时内为新鲜" },
+    policy: { text: "政策线", tone: "warn", hint: "平台政策，7 天内为新鲜，可复活启用" },
+    knowledge: { text: "知识线", tone: "ok", hint: "长效干货，按未使用库存轮转进 prompt" },
+  };
+  const USAGE_STATUS = {
+    unused: { text: "未使用", tone: "mut" },
+    used: { text: "已使用", tone: "ok" },
+    soft_expired: { text: "软过期", tone: "warn" },
+  };
+  const OBS_STATUS = {
+    new_source: { text: "新源", tone: "ok" },
+    seen_source: { text: "重复观察", tone: "mut" },
+    reactivated_source: { text: "复活启用", tone: "info" },
+    ignored: { text: "已忽略", tone: "warn" },
+  };
+
   // ---------- 动态加载 ----------
   const FLY = {
     // 静态
     STEP_DEFS, ART_STATUS, artStatus, STATUS_FLOW, CHANNEL_META, CH_STATUS,
     RUN_STATUS, runStatus, MODE_META, TOPIC_STATUS, topicStatus, ZH_ACTION, ZH_TASK,
     SOURCE_GROUP, sourceGroup: (k) => SOURCE_GROUP[k] || k,
+    LANE_META, laneMeta: (k) => LANE_META[k] || { text: k || "—", tone: "mut" },
+    USAGE_STATUS, usageStatus: (k) => USAGE_STATUS[k] || { text: k || "—", tone: "mut" },
+    OBS_STATUS, obsStatus: (k) => OBS_STATUS[k] || { text: k || "—", tone: "mut" },
     fmtDT, fmtHM, fmtHMS, mdToHtml,
     // 动态（load 后填充）
     DAILY: "—", TODAY: { state: "not_started", steps: null, meta: {}, availableActions: {} },
@@ -330,6 +351,47 @@
       const r = await api(`/api/ui/day/${date}/sources`);
       if (date !== FLY.DAILY) FLY._daySrcCache[date] = r.detail;
       return r.detail;
+    },
+    async loadSources({ lane, status, source, limit } = {}) {
+      const qs = new URLSearchParams();
+      if (lane) qs.set("lane", lane);
+      if (status) qs.set("status", status);
+      if (source) qs.set("source", source);
+      if (limit) qs.set("limit", limit);
+      return api(`/api/ui/sources${qs.toString() ? "?" + qs.toString() : ""}`);
+    },
+    // ---------- Web 控制台 ----------
+    async loadModelRuns({ task, run, article, limit } = {}) {
+      const qs = new URLSearchParams();
+      if (task) qs.set("task", task);
+      if (run) qs.set("run", run);
+      if (article) qs.set("article", article);
+      if (limit) qs.set("limit", limit);
+      return api(`/api/ui/model-runs${qs.toString() ? "?" + qs.toString() : ""}`);
+    },
+    async loadModelRun(id) {
+      return (await api(`/api/ui/model-runs/${encodeURIComponent(id)}`)).modelRun;
+    },
+    saveDoc(key, content) {
+      return post("/api/config/doc/save", { key, content, actor: "web" });
+    },
+    runStep(step) {
+      return post("/api/step/run", { step });
+    },
+    stepStatus() {
+      return api("/api/step/status");
+    },
+    stepLog(step) {
+      return api(`/api/step/log/${encodeURIComponent(step)}`);
+    },
+
+    async loadObservations({ date, run, status, limit } = {}) {
+      const qs = new URLSearchParams();
+      if (date) qs.set("date", date);
+      if (run) qs.set("run", run);
+      if (status) qs.set("status", status);
+      if (limit) qs.set("limit", limit);
+      return api(`/api/ui/observations${qs.toString() ? "?" + qs.toString() : ""}`);
     },
 
     async loadAuditions() {

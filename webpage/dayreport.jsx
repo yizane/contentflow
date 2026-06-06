@@ -1,5 +1,5 @@
 /* ============================================================
-   生产日报 — 日期胶囊条 + 倒排流水线（输出在顶，逐级回溯）+ 大事记（默认折叠）
+   生产日报 — 日期胶囊条 + 正序流水线（采集→…→拍板）+ 大事记（默认折叠）
    数据：GET /api/ui/days（胶囊条）+ GET /api/ui/day/:date（单日全景，含 7 步执行状态）
    ============================================================ */
 
@@ -48,7 +48,7 @@ const VERDICT_META = {
   fact_check_failed: { text: "核查未过", tone: "bad", icon: "xCircle" },
 };
 
-/* ---------- 倒排流水线行：挂在左侧时间轴轨道上的阶段节点 ---------- */
+/* ---------- 流水线行：挂在左侧时间轴轨道上的阶段节点 ---------- */
 function FlowRow({ icon, n, title, tone = "mut", headline, unit, sub, steps, open, onToggle, jump, problem, hero, children }) {
   const abnormal = (steps || []).filter((s) => s.status !== "success" && s.status !== "pending");
   const skipped = abnormal.length > 0 && abnormal.every((s) => s.status === "skipped");
@@ -132,13 +132,61 @@ function SourceChips({ sources }) {
 }
 
 /* ---------- 单日全景（倒排）---------- */
-function DayReport({ date, nav }) {
+function DayReport({ date, nav, toast }) {
   const [d, setD] = useState(null);
   const [error, setError] = useState(null);
   const [open, setOpen] = useState(null);
   const [showLog, setShowLog] = useState(false);
   const [srcDetail, setSrcDetail] = useState(null); // null | "loading" | {sources:[...]}
   const [openSrc, setOpenSrc] = useState(null);
+  const [mrModal, setMrModal] = useState(null);     // {task} → 模型调用查看器
+  const [logStep, setLogStep] = useState(null);     // step → 打开日志抽屉
+  const [running, setRunning] = useState({});       // step → true（单步重跑中）
+  const pollRef = useRef(null);
+  const isToday = date === FLY.DAILY;
+
+  // 单步重跑 + 轮询直到全部结束，然后刷新当日数据
+  const startPoll = () => {
+    if (pollRef.current) return;
+    pollRef.current = setInterval(async () => {
+      const s = await FLY.stepStatus().catch(() => null);
+      if (!s) return;
+      const still = {};
+      let failed = null;
+      Object.entries(s.steps || {}).forEach(([k, v]) => {
+        if (v.running) still[k] = true;
+        else if (v.exitCode != null && v.exitCode !== 0) failed = `${v.label} 退出码 ${v.exitCode}：${(v.lastLines || []).slice(-1)[0] || ""}`;
+      });
+      setRunning(still);
+      if (!Object.keys(still).length) {
+        clearInterval(pollRef.current); pollRef.current = null;
+        if (toast) toast(failed ? `单步重跑有失败 · ${failed.slice(0, 90)}` : "单步重跑完成，已刷新当日数据",
+          failed ? { icon: "xCircle", color: "var(--bad-solid)", dur: 6000 } : { icon: "checkCircle", color: "var(--ok-solid)" });
+        FLY.loadDay(date).then(setD).catch(() => {});
+      }
+    }, 4000);
+  };
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+  const rerun = async (step, label) => {
+    try {
+      await FLY.runStep(step);
+      if (toast) toast(`「${label}」已开始重跑，完成后自动刷新`, { icon: "play", color: "var(--info-solid)" });
+      setRunning((r) => ({ ...r, [step]: true }));
+      setLogStep(step); // 立即打开实时日志抽屉
+      startPoll();
+    } catch (e) {
+      if (toast) toast(`重跑被拒：${(e.data && e.data.error) || e.message}`, { icon: "xCircle", color: "var(--bad-solid)", dur: 5000 });
+    }
+  };
+  // 行内控制按钮：重跑（仅今天）+ 模型调用（任何日期）
+  const Rerun = ({ step, label }) => isToday ? (
+    <Btn kind="ghost" size="sm" icon="refresh" disabled={!!running[step]} onClick={() => rerun(step, label)}>
+      {running[step] ? "重跑中…" : `重跑${label}`}
+    </Btn>
+  ) : null;
+  const AiBtn = ({ task }) => (
+    <Btn kind="ghost" size="sm" icon="sparkles" onClick={() => setMrModal({ task: task || "" })}>模型调用</Btn>
+  );
   useEffect(() => {
     let alive = true;
     setD(null); setError(null); setOpen(null); setShowLog(false); setSrcDetail(null); setOpenSrc(null);
@@ -198,157 +246,52 @@ function DayReport({ date, nav }) {
                 </button>
               );
             })}
+          <button className="chip" onClick={() => setLogStep(logStep ? null : "_any")}
+            style={{ cursor: "pointer", height: 24, marginLeft: "auto", gap: 5 }} title="单步重跑的实时输出">
+            <Icon name="history" size={12} />运行日志
+          </button>
           {d.warnings.length > 0 && (
             <button className="chip" onClick={() => setShowLog(!showLog)}
-              style={{ cursor: "pointer", height: 24, marginLeft: "auto", background: "var(--warn-soft)", borderColor: "var(--warn-line)", color: "var(--warn)" }}>
+              style={{ cursor: "pointer", height: 24, background: "var(--warn-soft)", borderColor: "var(--warn-line)", color: "var(--warn)" }}>
               <Icon name="alert" size={12} />{d.warnings.length} 条警告/错误
             </button>
           )}
         </div>
       </Card>
 
-      {/* 倒排流水线：一条轨道串起 7 个阶段，最上面是最终产出，向下逐级回溯 */}
+      {/* 正序流水线：一条轨道串起 7 个阶段，采集在顶，拍板收尾 */}
       <Card>
         <div style={{ position: "relative", padding: "12px 16px" }}>
           {/* 时间轴轨道 */}
           <span aria-hidden style={{ position: "absolute", left: 31, top: 34, bottom: 34, width: 2, background: "var(--line)", borderRadius: 1 }} />
 
-          <FlowRow icon="flag" n="终" title="拍板 · 最终产出" hero
-            tone={verdictBad ? "bad" : d.verdicts.length ? "ok" : "mut"} problem={verdictBad}
-            headline={d.verdicts.length} unit="个终局" open={open === 0} onToggle={tg(0)}
-            sub={Object.entries(verdictBreakdown).map(([k, c]) => `${k}×${c}`).join(" · ") || "当日无文章终局变化"}
-            jump={<Btn kind="ghost" size="sm" iconR="chevR" onClick={() => nav("library", { day: date })}>在文章库查看该日</Btn>}>
-            {d.verdicts.map((v, i) => {
-              const m = VERDICT_META[v.to] || { text: v.to, tone: "mut", icon: "dot" };
-              return (
-                <div key={i} className="clickable" onClick={() => nav("detail", { id: v.articleId })}
-                  style={{ padding: "8px 10px", border: `1px solid var(--${m.tone}-line)`, background: `var(--${m.tone}-soft)`, borderRadius: 8, marginBottom: 6, cursor: "pointer" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <Icon name={m.icon} size={13} style={{ color: `var(--${m.tone})` }} />
-                    <b style={{ fontSize: 12, color: `var(--${m.tone})` }}>{m.text}</b>
-                    {v.bornDay && v.bornDay !== date && <span className="chip" style={{ height: 17, fontSize: 10 }}>生于 {v.bornDay.slice(5)}</span>}
-                    <span className="mono" style={{ fontSize: 10.5, color: "var(--ink-4)", marginLeft: "auto" }}>{FLY.fmtHM(v.t)}</span>
-                  </div>
-                  <div style={{ fontSize: 12, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.title}</div>
-                  {v.reason && <div style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 2 }}>{v.reason.slice(0, 90)}</div>}
-                </div>
-              );
-            })}
-            {!d.verdicts.length && <span style={{ color: "var(--ink-4)" }}>当日没有文章到达终局（待终审/批准/打回等）。向下回溯看卡在哪一步。</span>}
-            {d.advancedArticles.length > 0 && (
-              <div style={{ marginTop: 10 }}>
-                <b style={{ fontSize: 11.5, color: "var(--ink-3)" }}>当日推进的存量文章（跨天追踪）</b>
-                {d.advancedArticles.map((x) => (
-                  <div key={x.articleId} className="clickable" onClick={() => nav("detail", { id: x.articleId })} style={{ cursor: "pointer", padding: "7px 10px", border: "1px solid var(--line)", borderRadius: 8, marginTop: 6 }}>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <span style={{ fontWeight: 700, fontSize: 12 }}>{x.title}</span>
-                      {x.bornDay && <span className="chip" style={{ height: 17, fontSize: 10 }}>生于 {x.bornDay.slice(5)}</span>}
-                    </div>
-                    <div style={{ fontSize: 11.5, color: "var(--ink-2)", marginTop: 3 }}>
-                      {x.moves.map((mv, i) => (
-                        <span key={i}>{i > 0 && "　"}{FLY.fmtHM(mv.t)} {FLY.artStatus(mv.from).text}→<b style={{ color: `var(--${FLY.artStatus(mv.to).tone})` }}>{FLY.artStatus(mv.to).text}</b></span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </FlowRow>
-
-          <FlowRow icon="gauge" n="⑦" title="SEO/GEO 评分" tone="info" steps={st("score")} problem={failed("score")}
-            headline={stepBy.score && stepBy.score.metrics && stepBy.score.metrics.length ? stepBy.score.metrics[0][1] : "—"} unit="篇"
-            sub={skipReason("score") || (stepBy.score ? stepBy.score.summary : "建议线，不拦发布")}
-            open={open === 1} onToggle={tg(1)}>
-            {stepBy.score ? (
-              <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-                {(stepBy.score.metrics || []).map(([k, v]) => <span key={k} className="tnum" style={{ fontSize: 12 }}>{k} <b>{v}</b></span>)}
-                {(stepBy.score.warnings || []).map((w, i) => <div key={i} style={{ flexBasis: "100%", color: "var(--warn)", fontSize: 11.5 }}>⚠ {w}</div>)}
-              </div>
-            ) : <span style={{ color: "var(--ink-4)" }}>无执行记录。SEO/GEO 只处理待终审文章。</span>}
-          </FlowRow>
-
-          <FlowRow icon="share" n="⑥" title="渠道改写" tone="info" steps={st("channels")} problem={failed("channels")}
-            headline={d.channelsNew.length} unit="篇渠道稿"
-            sub={skipReason("channels") || "公众号 / 抖音 / 小红书"}
-            open={open === 2} onToggle={tg(2)}>
-            {d.channelsNew.map((c, i) => (
-              <div key={i} style={{ fontSize: 11.5, marginTop: 3 }}>
-                <Badge tone={c.status === "success" ? "ok" : "bad"} dot={false}>{FLY.CHANNEL_META[c.channel] || c.channel}</Badge> {c.title}…
-              </div>
-            ))}
-            {!d.channelsNew.length && <span style={{ color: "var(--ink-4)" }}>当日无渠道稿</span>}
-          </FlowRow>
-
-          <FlowRow icon="shield" n="⑤" title="核查 + 质量门禁" tone="warn" steps={st("factcheck")} problem={failed("factcheck")}
-            headline={d.factChecks} unit="次核查"
-            sub={skipReason("factcheck") || `新版本 ${d.versionsNew.length} 个`}
-            open={open === 3} onToggle={tg(3)}>
-            {d.versionsNew.map((v, i) => (
-              <div key={i} style={{ fontSize: 11.5, marginTop: 3 }} className="clickable" onClick={() => nav("detail", { id: v.articleId })}>
-                <span className="mono" style={{ fontWeight: 700 }}>{v.label}</span> {v.title}… <span style={{ color: "var(--ink-4)" }}>{v.mode === "fact_checked_revision" ? "补源修订" : "初稿"}</span>
-              </div>
-            ))}
-            {!d.versionsNew.length && !d.factChecks && <span style={{ color: "var(--ink-4)" }}>当日无核查/修订活动</span>}
-          </FlowRow>
-
-          <FlowRow icon="sparkles" n="④" title="生成文章" tone="ok" steps={st("generate")} problem={failed("generate")}
-            headline={d.articlesBorn.length} unit="篇新文章"
-            sub={skipReason("generate") || d.articlesBorn.map((x) => x.title.slice(0, 16)).join("；") || "当日无新文章"}
-            open={open === 4} onToggle={tg(4)}
-            jump={<Btn kind="ghost" size="sm" iconR="chevR" onClick={() => nav("library", { day: date })}>在文章库查看该日</Btn>}>
-            {d.articlesBorn.map((x) => (
-              <div key={x.id} className="clickable" onClick={() => nav("detail", { id: x.id })}
-                style={{ padding: "7px 9px", border: "1px solid var(--line)", borderRadius: 8, marginBottom: 6, cursor: "pointer" }}>
-                <div style={{ fontWeight: 700, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.title}</div>
-                <div style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 2 }}>
-                  质量门 {x.quality ?? "-"} · 主评分 <b style={{ color: x.articleQuality == null ? "var(--ink-4)" : x.articleQuality >= 80 ? "var(--ok)" : "var(--bad)" }}>{x.articleQuality ?? "未评"}</b> · {FLY.artStatus(x.status).text}
-                </div>
-              </div>
-            ))}
-            {!d.articlesBorn.length && <span style={{ color: "var(--ink-4)" }}>当日无新文章。回溯下面的选题/采集找原因。</span>}
-          </FlowRow>
-
-          <FlowRow icon="bulb" n="②③" title="选题（主题池→组合）" tone="brand"
-            steps={[...st("topics", "主题池"), ...st("tasks", "组合选题")]} problem={failed("topics") || failed("tasks")}
-            headline={`+${d.topics.created}`} unit="候选"
-            sub={skipReason("tasks") || `选中 ${d.topics.selected.length} · 延期 ${d.topics.deferredCount}`}
-            open={open === 5} onToggle={tg(5)}
-            jump={date === FLY.DAILY && <Btn kind="ghost" size="sm" iconR="chevR" onClick={() => nav("topics")}>选题池</Btn>}>
-            {d.topics.selected.length > 0 && (
-              <div style={{ marginBottom: 8 }}>
-                <b style={{ color: "var(--ok)", fontSize: 11.5 }}>选中</b>
-                {d.topics.selected.map((t, i) => (
-                  <div key={i} style={{ fontSize: 11.5, marginTop: 3 }}>
-                    ✓ [{FLY.taxLabel("businessCategories", t.businessCategory)}] {t.topic.slice(0, 36)}<span className="tnum" style={{ color: "var(--ink-3)" }}>（原始 {t.raw} · 价值 {t.value}）</span>
-                    <SourceChips sources={t.sources} />
-                  </div>
-                ))}
-              </div>
-            )}
-            {d.topics.deferredCount > 0 && (
-              <div style={{ marginBottom: 8 }}>
-                <b style={{ color: "var(--warn)", fontSize: 11.5 }}>延期 {d.topics.deferredCount} 个</b>
-                <span style={{ fontSize: 11, color: "var(--ink-3)", marginLeft: 6 }}>近期写过同类，到期自动回池：{Object.entries(d.topics.deferReasons).map(([k, c]) => `${k}×${c}`).join("、")}</span>
-                {d.topics.deferredSample.map((x, i) => <div key={i} style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 2 }}>⏸ {x.topic}…（{x.reason}）</div>)}
-              </div>
-            )}
-            {d.topics.top.length > 0 && (
-              <div>
-                <b style={{ fontSize: 11.5, color: "var(--ink-3)" }}>当日高分候选</b>
-                {d.topics.top.slice(0, 5).map((t, i) => (
-                  <div key={i} style={{ fontSize: 11.5, marginTop: 3 }}>
-                    <span className="tnum">{t.score}</span> 分 [{FLY.taxLabel("businessCategories", t.businessCategory)}] {t.topic.slice(0, 38)}
-                    <SourceChips sources={t.sources} />
-                  </div>
-                ))}
-              </div>
-            )}
-          </FlowRow>
-
           <FlowRow icon="rss" n="①" title="采集" tone="info" steps={st("collect")} problem={failed("collect")}
-            headline={d.collect.total} unit="条资讯"
-            sub={d.collect.failures.length ? `${d.collect.failures.length} 个源异常` : Object.entries(d.collect.byCategory).slice(0, 4).map(([k, c]) => `${FLY.taxLabel("businessCategories", k)} ${c}`).join(" · ")}
-            open={open === 6} onToggle={tg(6)}>
+            headline={d.collect.total} unit={d.collect.basis === "observations" ? "次观察" : "条资讯"}
+            sub={d.collect.failures.length ? `${d.collect.failures.length} 个源异常`
+              : d.collect.observed ? ["new_source", "seen_source", "reactivated_source", "ignored"].filter((k) => d.collect.observed[k]).map((k) => `${FLY.obsStatus(k).text} ${d.collect.observed[k]}`).join(" · ")
+              : Object.entries(d.collect.byCategory).slice(0, 4).map(([k, c]) => `${FLY.taxLabel("businessCategories", k)} ${c}`).join(" · ")}
+            open={open === 6} onToggle={tg(6)}
+            jump={<><Rerun step="collect" label="采集" /><Rerun step="classify" label="分类" /><AiBtn task="" /><Btn kind="ghost" size="sm" iconR="chevR" onClick={() => nav("sources", { day: date })}>数据源总览</Btn></>}>
+            {/* 观察判定分布（去重采集：新源 / 重复 / 复活 / 忽略）*/}
+            {d.collect.observed && (
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
+                <span style={{ fontSize: 11, color: "var(--ink-4)", fontWeight: 700, flex: "0 0 52px" }}>观察判定</span>
+                {["new_source", "seen_source", "reactivated_source", "ignored"].map((k) => {
+                  const os = FLY.obsStatus(k);
+                  return <span key={k} className="chip" style={{ height: 20, fontSize: 10.5, background: `var(--${os.tone}-bg)`, borderColor: `var(--${os.tone}-line)`, color: `var(--${os.tone})`, fontWeight: 700 }}>{os.text} {d.collect.observed[k] || 0}</span>;
+                })}
+              </div>
+            )}
+            {/* 三线健康（当日 engine_report）*/}
+            {d.sourceReport && d.sourceReport.lanes && (
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
+                <span style={{ fontSize: 11, color: "var(--ink-4)", fontWeight: 700, flex: "0 0 52px" }}>三线健康</span>
+                {d.sourceReport.lanes.news && <span className="chip" style={{ height: 20, fontSize: 10.5 }}>新闻线 72h 新鲜 {d.sourceReport.lanes.news.fresh72h ?? "—"}</span>}
+                {d.sourceReport.lanes.policy && <span className="chip" style={{ height: 20, fontSize: 10.5 }}>政策线 7 天新鲜 {d.sourceReport.lanes.policy.fresh7d ?? "—"} · 复活 {d.sourceReport.lanes.policy.reactivated ?? 0}</span>}
+                {d.sourceReport.lanes.knowledge && <span className="chip" style={{ height: 20, fontSize: 10.5 }}>知识线 未用 {d.sourceReport.lanes.knowledge.unused ?? "—"} · 最久 {d.sourceReport.lanes.knowledge.oldestUnusedDays ?? "—"} 天</span>}
+                {d.sourceReport.coverage && <span className="chip" style={{ height: 20, fontSize: 10.5 }}>素材库共 {d.sourceReport.coverage.canonicalSourcesSeen ?? "—"} 条</span>}
+              </div>
+            )}
             <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
               <span style={{ fontSize: 11, color: "var(--ink-4)", fontWeight: 700, flex: "0 0 52px" }}>业务分类</span>
               {Object.entries(d.collect.byCategory).map(([k, c]) => <span key={k} className="chip" style={{ height: 20, fontSize: 10.5 }}>{FLY.taxLabel("businessCategories", k)} {c}</span>)}
@@ -385,8 +328,12 @@ function DayReport({ date, nav }) {
                         {s.items.map((it, i) => (
                           <div key={i} style={{ fontSize: 11.5, padding: "2px 0", display: "flex", gap: 7, alignItems: "baseline" }}>
                             <span className="mono" style={{ color: "var(--ink-4)", flex: "0 0 34px", fontSize: 10.5 }}>{FLY.fmtHM(it.t)}</span>
+                            {it.obsStatus && it.obsStatus !== "seen_source" && (
+                              <span style={{ fontSize: 10, fontWeight: 700, flex: "0 0 auto", color: `var(--${FLY.obsStatus(it.obsStatus).tone})` }}>{FLY.obsStatus(it.obsStatus).text}</span>
+                            )}
                             <a href={it.url} target="_blank" rel="noreferrer" style={{ color: "var(--ink-2)", textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                               onMouseEnter={(e) => e.currentTarget.style.color = "var(--brand-600)"} onMouseLeave={(e) => e.currentTarget.style.color = "var(--ink-2)"}>{it.title}</a>
+                            {it.lane && <span style={{ fontSize: 10, color: `var(--${FLY.laneMeta(it.lane).tone})`, flex: "0 0 auto" }}>{FLY.laneMeta(it.lane).text}</span>}
                             {it.category && <span style={{ fontSize: 10, color: "var(--ink-4)", flex: "0 0 auto" }}>{FLY.taxLabel("businessCategories", it.category)}</span>}
                           </div>
                         ))}
@@ -398,6 +345,141 @@ function DayReport({ date, nav }) {
                 );
               })}
             </div>
+          </FlowRow>
+
+          <FlowRow icon="bulb" n="②③" title="选题（主题池→组合）" tone="brand"
+            steps={[...st("topics", "主题池"), ...st("tasks", "组合选题")]} problem={failed("topics") || failed("tasks")}
+            headline={`+${d.topics.created}`} unit="候选"
+            sub={skipReason("tasks") || `选中 ${d.topics.selected.length} · 延期 ${d.topics.deferredCount}`}
+            open={open === 5} onToggle={tg(5)}
+            jump={<><Rerun step="topics" label="主题池" /><Rerun step="jobs" label="组合选题" /><AiBtn task="topic_generation" />{date === FLY.DAILY && <Btn kind="ghost" size="sm" iconR="chevR" onClick={() => nav("topics")}>选题池</Btn>}</>}>
+            {d.topics.selected.length > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                <b style={{ color: "var(--ok)", fontSize: 11.5 }}>选中</b>
+                {d.topics.selected.map((t, i) => (
+                  <div key={i} style={{ fontSize: 11.5, marginTop: 3 }}>
+                    ✓ [{FLY.taxLabel("businessCategories", t.businessCategory)}] {t.topic.slice(0, 36)}<span className="tnum" style={{ color: "var(--ink-3)" }}>（原始 {t.raw} · 价值 {t.value}）</span>
+                    <SourceChips sources={t.sources} />
+                  </div>
+                ))}
+              </div>
+            )}
+            {d.topics.deferredCount > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                <b style={{ color: "var(--warn)", fontSize: 11.5 }}>延期 {d.topics.deferredCount} 个</b>
+                <span style={{ fontSize: 11, color: "var(--ink-3)", marginLeft: 6 }}>近期写过同类，到期自动回池：{Object.entries(d.topics.deferReasons).map(([k, c]) => `${k}×${c}`).join("、")}</span>
+                {d.topics.deferredSample.map((x, i) => <div key={i} style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 2 }}>⏸ {x.topic}…（{x.reason}）</div>)}
+              </div>
+            )}
+            {d.topics.top.length > 0 && (
+              <div>
+                <b style={{ fontSize: 11.5, color: "var(--ink-3)" }}>当日高分候选</b>
+                {d.topics.top.slice(0, 5).map((t, i) => (
+                  <div key={i} style={{ fontSize: 11.5, marginTop: 3 }}>
+                    <span className="tnum">{t.score}</span> 分 [{FLY.taxLabel("businessCategories", t.businessCategory)}] {t.topic.slice(0, 38)}
+                    <SourceChips sources={t.sources} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </FlowRow>
+
+          <FlowRow icon="sparkles" n="④" title="生成文章" tone="ok" steps={st("generate")} problem={failed("generate")}
+            headline={d.articlesBorn.length} unit="篇新文章"
+            sub={skipReason("generate") || d.articlesBorn.map((x) => x.title.slice(0, 16)).join("；") || "当日无新文章"}
+            open={open === 4} onToggle={tg(4)}
+            jump={<><Rerun step="generate" label="生成" /><AiBtn task="article_generation" /><Btn kind="ghost" size="sm" iconR="chevR" onClick={() => nav("library", { day: date })}>在文章库查看该日</Btn></>}>
+            {d.articlesBorn.map((x) => (
+              <div key={x.id} className="clickable" onClick={() => nav("detail", { id: x.id })}
+                style={{ padding: "7px 9px", border: "1px solid var(--line)", borderRadius: 8, marginBottom: 6, cursor: "pointer" }}>
+                <div style={{ fontWeight: 700, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.title}</div>
+                <div style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 2 }}>
+                  质量门 {x.quality ?? "-"} · 主评分 <b style={{ color: x.articleQuality == null ? "var(--ink-4)" : x.articleQuality >= 80 ? "var(--ok)" : "var(--bad)" }}>{x.articleQuality ?? "未评"}</b> · {FLY.artStatus(x.status).text}
+                </div>
+              </div>
+            ))}
+            {!d.articlesBorn.length && <span style={{ color: "var(--ink-4)" }}>当日无新文章。往上看选题/采集是否有产出。</span>}
+          </FlowRow>
+
+          <FlowRow icon="shield" n="⑤" title="核查 + 质量门禁" tone="warn" steps={st("factcheck")} problem={failed("factcheck")}
+            headline={d.factChecks} unit="次核查"
+            sub={skipReason("factcheck") || `新版本 ${d.versionsNew.length} 个`}
+            open={open === 3} onToggle={tg(3)}
+            jump={<><Rerun step="factcheck" label="核查" /><Rerun step="quality" label="质量评分" /><AiBtn task="fact_check" /></>}>
+            {d.versionsNew.map((v, i) => (
+              <div key={i} style={{ fontSize: 11.5, marginTop: 3 }} className="clickable" onClick={() => nav("detail", { id: v.articleId })}>
+                <span className="mono" style={{ fontWeight: 700 }}>{v.label}</span> {v.title}… <span style={{ color: "var(--ink-4)" }}>{v.mode === "fact_checked_revision" ? "补源修订" : "初稿"}</span>
+              </div>
+            ))}
+            {!d.versionsNew.length && !d.factChecks && <span style={{ color: "var(--ink-4)" }}>当日无核查/修订活动</span>}
+          </FlowRow>
+
+          <FlowRow icon="share" n="⑥" title="渠道改写" tone="info" steps={st("channels")} problem={failed("channels")}
+            headline={d.channelsNew.length} unit="篇渠道稿"
+            sub={skipReason("channels") || "公众号 / 抖音 / 小红书"}
+            open={open === 2} onToggle={tg(2)}
+            jump={<><Rerun step="channels" label="渠道" /><AiBtn task="channel_repurpose" /></>}>
+            {d.channelsNew.map((c, i) => (
+              <div key={i} style={{ fontSize: 11.5, marginTop: 3 }}>
+                <Badge tone={c.status === "success" ? "ok" : "bad"} dot={false}>{FLY.CHANNEL_META[c.channel] || c.channel}</Badge> {c.title}…
+              </div>
+            ))}
+            {!d.channelsNew.length && <span style={{ color: "var(--ink-4)" }}>当日无渠道稿</span>}
+          </FlowRow>
+
+          <FlowRow icon="gauge" n="⑦" title="SEO/GEO 评分" tone="info" steps={st("score")} problem={failed("score")}
+            headline={stepBy.score && stepBy.score.metrics && stepBy.score.metrics.length ? stepBy.score.metrics[0][1] : "—"} unit="篇"
+            sub={skipReason("score") || (stepBy.score ? stepBy.score.summary : "建议线，不拦发布")}
+            open={open === 1} onToggle={tg(1)}
+            jump={<><Rerun step="score" label="评分" /><AiBtn task="seo_geo_score" /></>}>
+            {stepBy.score ? (
+              <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+                {(stepBy.score.metrics || []).map(([k, v]) => <span key={k} className="tnum" style={{ fontSize: 12 }}>{k} <b>{v}</b></span>)}
+                {(stepBy.score.warnings || []).map((w, i) => <div key={i} style={{ flexBasis: "100%", color: "var(--warn)", fontSize: 11.5 }}>⚠ {w}</div>)}
+              </div>
+            ) : <span style={{ color: "var(--ink-4)" }}>无执行记录。SEO/GEO 只处理待终审文章。</span>}
+          </FlowRow>
+
+          <FlowRow icon="flag" n="终" title="拍板 · 最终产出" hero
+            tone={verdictBad ? "bad" : d.verdicts.length ? "ok" : "mut"} problem={verdictBad}
+            headline={d.verdicts.length} unit="个终局" open={open === 0} onToggle={tg(0)}
+            sub={Object.entries(verdictBreakdown).map(([k, c]) => `${k}×${c}`).join(" · ") || "当日无文章终局变化"}
+            jump={<><Btn kind="ghost" size="sm" iconR="chevR" onClick={() => nav("library", { day: date })}>在文章库查看该日</Btn><AiBtn task="" /></>}>
+            {d.verdicts.map((v, i) => {
+              const m = VERDICT_META[v.to] || { text: v.to, tone: "mut", icon: "dot" };
+              return (
+                <div key={i} className="clickable" onClick={() => nav("detail", { id: v.articleId })}
+                  style={{ padding: "8px 10px", border: `1px solid var(--${m.tone}-line)`, background: `var(--${m.tone}-soft)`, borderRadius: 8, marginBottom: 6, cursor: "pointer" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <Icon name={m.icon} size={13} style={{ color: `var(--${m.tone})` }} />
+                    <b style={{ fontSize: 12, color: `var(--${m.tone})` }}>{m.text}</b>
+                    {v.bornDay && v.bornDay !== date && <span className="chip" style={{ height: 17, fontSize: 10 }}>生于 {v.bornDay.slice(5)}</span>}
+                    <span className="mono" style={{ fontSize: 10.5, color: "var(--ink-4)", marginLeft: "auto" }}>{FLY.fmtHM(v.t)}</span>
+                  </div>
+                  <div style={{ fontSize: 12, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.title}</div>
+                  {v.reason && <div style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 2 }}>{v.reason.slice(0, 90)}</div>}
+                </div>
+              );
+            })}
+            {!d.verdicts.length && <span style={{ color: "var(--ink-4)" }}>当日没有文章到达终局（待终审/批准/打回等）。往上看卡在哪一步。</span>}
+            {d.advancedArticles.length > 0 && (
+              <div style={{ marginTop: 10 }}>
+                <b style={{ fontSize: 11.5, color: "var(--ink-3)" }}>当日推进的存量文章（跨天追踪）</b>
+                {d.advancedArticles.map((x) => (
+                  <div key={x.articleId} className="clickable" onClick={() => nav("detail", { id: x.articleId })} style={{ cursor: "pointer", padding: "7px 10px", border: "1px solid var(--line)", borderRadius: 8, marginTop: 6 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <span style={{ fontWeight: 700, fontSize: 12 }}>{x.title}</span>
+                      {x.bornDay && <span className="chip" style={{ height: 17, fontSize: 10 }}>生于 {x.bornDay.slice(5)}</span>}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: "var(--ink-2)", marginTop: 3 }}>
+                      {x.moves.map((mv, i) => (
+                        <span key={i}>{i > 0 && "　"}{FLY.fmtHM(mv.t)} {FLY.artStatus(mv.from).text}→<b style={{ color: `var(--${FLY.artStatus(mv.to).tone})` }}>{FLY.artStatus(mv.to).text}</b></span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </FlowRow>
         </div>
       </Card>
@@ -434,6 +516,11 @@ function DayReport({ date, nav }) {
           )}
         </Card>
       )}
+
+      {/* 模型调用 I/O 查看器 */}
+      {mrModal && window.ModelRunsModal && <window.ModelRunsModal task={mrModal.task} onClose={() => setMrModal(null)} />}
+      {/* 单步运行日志抽屉（终端风格，实时轮询）*/}
+      {logStep && window.StepLogDrawer && <window.StepLogDrawer initialStep={logStep === "_any" ? null : logStep} onClose={() => setLogStep(null)} />}
     </div>
   );
 }

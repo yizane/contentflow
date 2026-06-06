@@ -4,13 +4,14 @@
 const NAV = [
   { id: "dashboard", label: "生产日报", icon: "home" },
   { id: "library", label: "文章库", icon: "docs" },
-  { id: "runs", label: "运行历史", icon: "history" },
+  { id: "sources", label: "数据源", icon: "rss" },
   { id: "topics", label: "选题池", icon: "bulb" },
+  { id: "runs", label: "运行历史", icon: "history" },
   { id: "config", label: "配置管理", icon: "sliders" },
 ];
 
 const PAGE_TITLE = {
-  dashboard: "生产日报", library: "文章库", detail: "文章详情",
+  dashboard: "生产日报", library: "文章库", detail: "文章详情", sources: "数据源",
   runs: "运行历史", runDetail: "运行详情", topics: "选题池", config: "配置管理",
 };
 
@@ -121,8 +122,9 @@ function App({ onReload }) {
 
   const PageComp = (() => {
     switch (page) {
-      case "dashboard": return <Dashboard state={runState} nav={nav} onAction={onAction} />;
+      case "dashboard": return <Dashboard state={runState} nav={nav} onAction={onAction} toast={toast} />;
       case "library": return window.Library ? <window.Library nav={nav} params={params} /> : <Placeholder title="文章库" />;
+      case "sources": return window.SourcesPage ? <window.SourcesPage nav={nav} params={params} toast={toast} /> : <Placeholder title="数据源" />;
       case "detail": return window.ArticleDetail ? <window.ArticleDetail nav={nav} params={params} toast={toast} setModal={setModal} onChanged={reload} /> : <Placeholder title="文章详情" />;
       case "runs": return window.RunHistory ? <window.RunHistory nav={nav} params={params} /> : <Placeholder title="运行历史" />;
       case "runDetail": return window.RunDetail ? <window.RunDetail nav={nav} params={params} toast={toast} onAction={onAction} /> : <Placeholder title="运行详情" />;
