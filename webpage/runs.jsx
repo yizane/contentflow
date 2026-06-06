@@ -259,7 +259,7 @@ function SourceLogs({ sources, classification }) {
           <option value="all">全部状态</option><option value="success">成功</option><option value="partial">部分成功</option><option value="failed">失败</option><option value="skipped">跳过</option>
         </select>
         <select className="inp btn-sm" style={{ width: "auto", height: 32 }} value={group} onChange={e => setGroup(e.target.value)}>
-          {groups.map(g => <option key={g} value={g}>{g === "all" ? "全部分组" : g}</option>)}
+          {groups.map(g => <option key={g} value={g}>{g === "all" ? "全部分组" : FLY.sourceGroup(g)}</option>)}
         </select>
       </div>
       <table className="tbl">
@@ -277,7 +277,7 @@ function SourceLogs({ sources, classification }) {
                   <div style={{ display: "flex", alignItems: "center", gap: 7 }}>{s.name}{s.chronicFail && <span className="badge bg-bad" style={{ height: 18, fontSize: 10.5 }}>持续失败</span>}</div>
                   <div className="mono" style={{ fontSize: 11, color: "var(--ink-4)", fontWeight: 500, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.url}</div>
                 </td>
-                <td className="muted mono" style={{ fontSize: 11 }}>{s.group}</td>
+                <td className="muted" style={{ fontSize: 11 }}>{FLY.sourceGroup(s.group)}</td>
                 <td className="muted mono" style={{ fontSize: 11 }}>{s.type}</td>
                 <td><Badge tone={ss[1]} dot={false}>{ss[0]}</Badge></td>
                 <td className="mono tnum" style={{ fontSize: 12, color: s.http >= 400 ? "var(--bad)" : s.http ? "var(--ink-2)" : "var(--ink-4)" }}>{s.http || "—"}</td>

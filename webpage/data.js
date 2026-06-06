@@ -207,11 +207,23 @@
     };
   }
 
+  // 采集来源分组的中文名
+  const SOURCE_GROUP = {
+    official_amazon: "亚马逊官方",
+    marketplace_news: "行业媒体",
+    chinese_crossborder_news: "中文跨境媒体",
+    amazon_seller_tools_blogs: "卖家工具博客",
+    community_signals: "社区信号",
+    seo_geo_ai_search: "SEO / AI 搜索",
+    search_queries: "搜索抓取",
+  };
+
   // ---------- 动态加载 ----------
   const FLY = {
     // 静态
     STEP_DEFS, ART_STATUS, artStatus, STATUS_FLOW, CHANNEL_META, CH_STATUS,
     RUN_STATUS, runStatus, MODE_META, TOPIC_STATUS, topicStatus, ZH_ACTION, ZH_TASK,
+    SOURCE_GROUP, sourceGroup: (k) => SOURCE_GROUP[k] || k,
     fmtDT, fmtHM, fmtHMS, mdToHtml,
     // 动态（load 后填充）
     DAILY: "—", TODAY: { state: "not_started", steps: null, meta: {}, availableActions: {} },
@@ -298,6 +310,26 @@
     },
     toggleConfig(kind, id, enabled) {
       return post(`/api/config/${kind}/${encodeURIComponent(id)}/toggle`, { enabled });
+    },
+
+    _dayCache: {},
+    async loadDays(limit) {
+      const r = await api(`/api/ui/days?limit=${limit || 14}`);
+      return r.days || [];
+    },
+    async loadDay(date) {
+      // 今天的数据会变，不缓存；历史日缓存
+      if (date !== FLY.DAILY && FLY._dayCache[date]) return FLY._dayCache[date];
+      const r = await api(`/api/ui/day/${date}`);
+      if (date !== FLY.DAILY) FLY._dayCache[date] = r.day;
+      return r.day;
+    },
+    _daySrcCache: {},
+    async loadDaySources(date) {
+      if (date !== FLY.DAILY && FLY._daySrcCache[date]) return FLY._daySrcCache[date];
+      const r = await api(`/api/ui/day/${date}/sources`);
+      if (date !== FLY.DAILY) FLY._daySrcCache[date] = r.detail;
+      return r.detail;
     },
 
     async loadAuditions() {

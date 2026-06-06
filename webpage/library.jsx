@@ -10,7 +10,8 @@ function Library({ nav, params }) {
   const [bcat, setBcat] = useState("");   // 业务分类筛选
   const [q, setQ] = useState("");
 
-  useEffect(() => { if (params.filter) setFilter(params.filter); setSub(params.sub || ""); }, [params.filter, params.sub]);
+  const [day, setDayF] = useState(params.day || "");
+  useEffect(() => { if (params.filter) setFilter(params.filter); setSub(params.sub || ""); setDayF(params.day || ""); }, [params.filter, params.sub, params.day]);
 
   const STATUS_TABS = [
     ["all", "全部"], ["needs_fact_sources", "待补来源"], ["ready_for_review", "待终审"],
@@ -40,6 +41,7 @@ function Library({ nav, params }) {
     const now = Date.now();
     const span = { today: 1, "7d": 7, "30d": 30 }[time];
     return FLY.ARTICLES.filter(a => {
+      if (day && !(a.created || "").startsWith(day)) return false;
       if (filter !== "all" && a.status !== filter) return false;
       if (filter === "needs_fact_sources" && sub === "human" && !a.needsHuman) return false;
       if (filter === "needs_fact_sources" && sub === "auto" && a.needsHuman) return false;
@@ -56,7 +58,7 @@ function Library({ nav, params }) {
       if (bcat && a.businessCategory !== bcat) return false;
       return true;
     });
-  }, [filter, sub, q, time, score, ctype, bcat, FLY.ARTICLES]);
+  }, [filter, sub, day, q, time, score, ctype, bcat, FLY.ARTICLES]);
 
   const filterLabel = STATUS_TABS.find(t => t[0] === filter)?.[1];
 
@@ -82,6 +84,12 @@ function Library({ nav, params }) {
             <option value="">全部分数</option><option value="q85">质量分 ≥ 85</option>
             <option value="seo80">SEO ≥ 80</option><option value="geo80">GEO ≥ 80</option>
           </select>
+          {day && (
+            <span className="chip" style={{ background: "var(--brand-50)", borderColor: "var(--brand-200)", color: "var(--brand-700)", fontWeight: 700 }}>
+              {day} 当日
+              <button onClick={() => setDayF("")} style={{ border: "none", background: "none", cursor: "pointer", color: "var(--brand-700)", padding: 0, display: "flex" }}><Icon name="x" size={12} /></button>
+            </span>
+          )}
           <div style={{ marginLeft: "auto", color: "var(--ink-3)", fontSize: 12.5, fontWeight: 600 }}>{rows.length} 条结果</div>
         </div>
         <div style={{ borderTop: "1px solid var(--line-soft)", padding: "10px 16px", display: "flex", gap: 6, flexWrap: "wrap" }}>

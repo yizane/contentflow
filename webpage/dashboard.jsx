@@ -149,107 +149,6 @@ function TodoBoard({ state, nav }) {
   );
 }
 
-/* ---------- 7-step pipeline ---------- */
-function Pipeline({ state, nav }) {
-  const steps = FLY.TODAY.steps || FLY.STEP_DEFS.map(d => ({ ...d, status: "pending", summary: "等待中", dur: 0, metrics: [] }));
-  const [open, setOpen] = useState(null);
-
-  return (
-    <Card>
-      <CardHead icon="layers" title="7 步流水线">
-        <span className="hint">{state === "not_started" ? "今日尚未运行" : "点击任意步骤展开详情"}</span>
-      </CardHead>
-      <div style={{ padding: "18px 18px 6px" }}>
-        <div className="pipe-row">
-          {steps.map((s, i) => {
-            const tone = STEP_TONE[s.status];
-            const isOpen = open === i;
-            const done = s.status === "success" || s.status === "warning";
-            return (
-              <React.Fragment key={s.key}>
-                <button className={`pipe-card${isOpen ? " open" : ""}`} onClick={() => setOpen(isOpen ? null : i)}>
-                  <div className="pc-head" style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 9 }}>
-                    <span style={{ width: 26, height: 26, borderRadius: 8, display: "grid", placeItems: "center", flex: "0 0 auto",
-                      background: s.status === "pending" ? "var(--mut-bg)" : `var(--${tone}-bg)`, color: s.status === "pending" ? "var(--ink-4)" : `var(--${tone})` }}>
-                      {s.status === "running" ? <span className="spin" style={{ display: "flex" }}><Icon name="refresh" size={14} /></span>
-                        : s.status === "success" || s.status === "warning" ? <Icon name="check" size={15} />
-                        : s.status === "failed" ? <Icon name="x" size={15} />
-                        : <Icon name={s.icon} size={14} />}
-                    </span>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-4)" }} className="mono">0{s.n}</span>
-                  </div>
-                  <div className="pc-title" style={{ fontWeight: 700, fontSize: 13, letterSpacing: "-.01em", marginBottom: 6 }}>{s.title}</div>
-                  <div className="pc-summary" style={{ minHeight: 30, fontSize: 11.5, color: s.status === "pending" ? "var(--ink-4)" : "var(--ink-2)", lineHeight: 1.4 }}>
-                    {s.status === "pending" ? "等待中" : s.summary}
-                  </div>
-                </button>
-                {i < steps.length - 1 && (
-                  <div className="pipe-conn"><i className={done ? "done" : ""} /></div>
-                )}
-              </React.Fragment>
-            );
-          })}
-        </div>
-      </div>
-      {open != null && <StepDetail step={steps[open]} nav={nav} />}
-    </Card>
-  );
-}
-
-function StepDetail({ step, nav }) {
-  const tone = STEP_TONE[step.status];
-  const runId = FLY.TODAY.run && FLY.TODAY.run.id;
-  const artId = FLY.TODAY.firstArticleId;
-  const enterMap = {
-    collect: () => runId && nav("runDetail", { id: runId, tab: "sources" }),
-    topics: () => nav("topics"),
-    tasks: () => nav("topics"),
-    generate: () => artId ? nav("detail", { id: artId }) : nav("library"),
-    factcheck: () => artId ? nav("detail", { id: artId, tab: "fact" }) : nav("library"),
-    channels: () => artId ? nav("detail", { id: artId, tab: "channels" }) : nav("library"),
-    score: () => artId ? nav("detail", { id: artId, tab: "score" }) : nav("library"),
-  };
-  return (
-    <div className="fade-in" style={{ margin: "4px 18px 18px", padding: "16px 18px", background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 13 }}>
-        <Badge tone={tone}>{STEP_LABEL[step.status]}</Badge>
-        <span style={{ fontWeight: 700, fontSize: 13.5 }}>{step.title}</span>
-        {step.dur > 0 && <span className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>耗时 {fmtDur(step.dur)}</span>}
-        {step.synthetic && <span className="hint">本次运行未记录步骤级日志，状态由运行统计推断</span>}
-        <Btn kind="ghost" size="sm" iconR="chevR" style={{ marginLeft: "auto" }} onClick={enterMap[step.key]}>{step.enter}</Btn>
-      </div>
-      {step.metrics && step.metrics.length > 0 && (
-        <div style={{ display: "flex", gap: 0, flexWrap: "wrap", border: "1px solid var(--line)", borderRadius: 10, overflow: "hidden", background: "var(--surface)" }}>
-          {step.metrics.map(([k, v], i) => (
-            <div key={k} style={{ padding: "11px 18px", borderLeft: i ? "1px solid var(--line-soft)" : "none", minWidth: 92 }}>
-              <div style={{ fontSize: 11.5, color: "var(--ink-3)", fontWeight: 600 }}>{k}</div>
-              <div className="tnum" style={{ fontSize: 19, fontWeight: 800, marginTop: 2 }}>{v}</div>
-            </div>
-          ))}
-        </div>
-      )}
-      {step.error && (
-        <div style={{ marginTop: 12, display: "flex", gap: 9, padding: "11px 13px", background: "var(--bad-soft)", border: "1px solid var(--bad-line)", borderRadius: 9 }}>
-          <Icon name="alert" size={16} style={{ color: "var(--bad)", flex: "0 0 auto", marginTop: 1 }} />
-          <div style={{ fontSize: 12.5, color: "var(--bad)", lineHeight: 1.5 }}><b>失败原因</b> · {step.error}</div>
-        </div>
-      )}
-      {step.reason && (
-        <div style={{ marginTop: 12, display: "flex", gap: 9, padding: "11px 13px", background: "var(--mut-soft)", border: "1px solid var(--line)", borderRadius: 9 }}>
-          <Icon name="dot" size={16} style={{ color: "var(--ink-3)", flex: "0 0 auto", marginTop: 1 }} />
-          <div style={{ fontSize: 12.5, color: "var(--ink-2)", lineHeight: 1.5 }}>{step.reason}</div>
-        </div>
-      )}
-      {step.warnings && step.warnings.length > 0 && (
-        <div style={{ marginTop: 12, display: "flex", gap: 9, padding: "11px 13px", background: "var(--warn-soft)", border: "1px solid var(--warn-line)", borderRadius: 9 }}>
-          <Icon name="alert" size={16} style={{ color: "var(--warn)", flex: "0 0 auto", marginTop: 1 }} />
-          <div style={{ fontSize: 12.5, color: "var(--warn)", lineHeight: 1.6 }}>{step.warnings.map((w, i) => <div key={i}>{w}</div>)}</div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* ---------- 最近文章 ---------- */
 function RecentArticles({ state, nav }) {
   const todayArts = FLY.ARTICLES.filter(a => (a.created || "").startsWith(FLY.DAILY));
@@ -295,19 +194,35 @@ function RecentArticles({ state, nav }) {
 }
 
 function Dashboard({ state, nav, onAction }) {
+  const [days, setDays] = useState([]);
+  const [day, setDay] = useState(FLY.DAILY);
+  useEffect(() => {
+    let alive = true;
+    FLY.loadDays(7).then((d) => { if (alive) setDays(d); }).catch(() => {});
+    return () => { alive = false; };
+  }, [FLY.DAILY]);
+
+  const isToday = day === FLY.DAILY;
+
   return (
     <div className="page fade-in">
       <div className="page-head" style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
         <div>
-          <h1 className="page-title">今日看板</h1>
-          <p className="page-sub">一屏掌握今天生产了什么、卡在哪里、哪些文章需要你处理。</p>
+          <h1 className="page-title">生产日报</h1>
+          <p className="page-sub">{isToday ? "从最终产出往回看：先看拍板了什么，再逐级回溯找问题。" : `回放 ${day}：最上面是当日最终产出，向下逐级回溯到采集（只读）。`}</p>
         </div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        <StatusBar state={state} onAction={onAction} />
-        <TodoBoard state={state} nav={nav} />
-        <Pipeline state={state} nav={nav} />
-        <RecentArticles state={state} nav={nav} />
+        {days.length > 0 && <DayStrip days={days} value={day} onChange={setDay} />}
+        {isToday ? (
+          <>
+            <StatusBar state={state} onAction={onAction} />
+            <TodoBoard state={state} nav={nav} />
+            <DayReport date={day} nav={nav} />
+          </>
+        ) : (
+          <DayReport date={day} nav={nav} />
+        )}
       </div>
     </div>
   );

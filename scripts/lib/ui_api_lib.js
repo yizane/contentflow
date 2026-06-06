@@ -430,6 +430,196 @@ async function uiPortfolioSummary() {
   }
 }
 
+// ---------- 生产日报（按天聚合：日期胶囊条 + 单日全景）----------
+// 归属规则：created_at 的本地日；run 优先用 daily_key。模拟数据必须回填时间戳（见 AGENTS.md 契约）。
+async function uiDays(limit = 14) {
+  const n = Math.max(3, Math.min(30, limit));
+  const since = `${rc.getDailyKey(new Date(Date.now() - (n - 1) * 86400000))} 00:00:00`;
+  const cnt = async (table) => Object.fromEntries(
+    (await my.query(`SELECT DATE(created_at) d, COUNT(*) c FROM ${table} WHERE created_at >= ? GROUP BY DATE(created_at)`, [since]))
+      .map((r) => [rc.getDailyKey(new Date(r.d)), r.c]));
+  const [srcBy, topicBy, artBy, runRows, verdictRows] = await Promise.all([
+    cnt('source_items'), cnt('topic_candidates'), cnt('articles'),
+    my.query("SELECT daily_key, status FROM engine_runs WHERE run_scope = 'daily' AND is_active = 1 AND daily_key >= ?", [since.slice(0, 10)]),
+    my.query("SELECT DATE(created_at) d, COUNT(*) c FROM status_transitions WHERE entity_type = 'article' AND to_status IN ('ready_for_review','approved_for_publish','published') AND created_at >= ? GROUP BY DATE(created_at)", [since]),
+  ]);
+  const runBy = {}; runRows.forEach((r) => { runBy[r.daily_key] = runStatus(r.status); });
+  const verdictBy = {}; verdictRows.forEach((r) => { verdictBy[rc.getDailyKey(new Date(r.d))] = r.c; });
+  const days = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const date = rc.getDailyKey(new Date(Date.now() - i * 86400000));
+    days.push({
+      date, runStatus: runBy[date] || null,
+      sources: srcBy[date] || 0, topics: topicBy[date] || 0,
+      articles: artBy[date] || 0, verdicts: verdictBy[date] || 0,
+    });
+  }
+  return days;
+}
+
+// 主题的来源线索：source_urls_json → [{url, host}]，供前端展示可点的来源域名
+function srcHosts(j) {
+  const arr = my.asJson(j);
+  if (!Array.isArray(arr)) return [];
+  return arr.slice(0, 4).map((u) => {
+    try { return { url: u, host: new URL(u).hostname.replace(/^www\./, '') }; }
+    catch (_) { return { url: String(u), host: String(u).slice(0, 28) }; }
+  });
+}
+
+async function uiDay(date) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const a = `${date} 00:00:00`;
+  const b = `${date} 23:59:59.999`;
+  const range = (col = 'created_at') => `${col} >= '${a.replace(/'/g, '')}' AND ${col} <= '${b.replace(/'/g, '')}'`;
+
+  const [runs, srcStats, srcGroups, srcCats, srcTypes, srcFails, topicsNew, topicDecisions, articlesBorn, artTransitions, fcCount, versionsNew, channelsNew, warnEvents] = await Promise.all([
+    my.query(`SELECT * FROM engine_runs WHERE daily_key = ? OR (${range('started_at')}) ORDER BY started_at`, [date]),
+    my.query(`SELECT COUNT(*) c FROM source_items WHERE ${range()}`),
+    my.query(`SELECT source_group k, COUNT(*) c FROM source_items WHERE ${range()} GROUP BY source_group ORDER BY c DESC`),
+    my.query(`SELECT business_category k, COUNT(*) c FROM source_items WHERE ${range()} AND business_category IS NOT NULL GROUP BY business_category ORDER BY c DESC LIMIT 8`),
+    my.query(`SELECT content_type k, COUNT(*) c FROM source_items WHERE ${range()} AND content_type IS NOT NULL GROUP BY content_type ORDER BY c DESC LIMIT 8`),
+    my.query(`SELECT source_name, status, http_status, error_message FROM source_collection_logs WHERE ${range()} AND status IN ('failed','partial') ORDER BY status LIMIT 12`),
+    my.query(`SELECT COUNT(*) c FROM topic_candidates WHERE ${range()}`).then(async (cnt) => ({
+      count: cnt[0].c,
+      rows: await my.query(`SELECT id, topic, score, raw_score, content_value_score, priority, status, business_category, topic_cluster, selection_status, selection_skip_reason, source_urls_json FROM topic_candidates WHERE ${range()} ORDER BY score DESC LIMIT 60`),
+    })),
+    my.query(`SELECT st.entity_id, st.to_status, st.reason, st.created_at, tc.topic, tc.raw_score, tc.content_value_score, tc.selection_score, tc.business_category, tc.topic_cluster, tc.source_urls_json
+              FROM status_transitions st LEFT JOIN topic_candidates tc ON tc.id = st.entity_id
+              WHERE st.entity_type = 'topic_candidate' AND st.to_status IN ('selected','deferred') AND ${range('st.created_at')} ORDER BY st.created_at LIMIT 40`),
+    my.query(`SELECT id, title, slug, status, quality_score, article_quality_score, seo_score, geo_score, fact_publish_readiness, business_category, topic_cluster, created_at FROM articles WHERE ${range()} ORDER BY created_at`),
+    my.query(`SELECT st.entity_id, st.from_status, st.to_status, st.reason, st.actor, st.created_at, a.title, DATE(a.created_at) born
+              FROM status_transitions st LEFT JOIN articles a ON a.id = st.entity_id
+              WHERE st.entity_type = 'article' AND ${range('st.created_at')} ORDER BY st.created_at LIMIT 60`),
+    my.query(`SELECT COUNT(*) c FROM fact_checks WHERE ${range()}`),
+    my.query(`SELECT v.article_id, v.version_label, v.generation_mode, v.created_at, a.title FROM article_versions v LEFT JOIN articles a ON a.id = v.article_id WHERE ${range('v.created_at')} ORDER BY v.created_at LIMIT 20`),
+    my.query(`SELECT co.article_id, co.channel, co.status, a.title FROM channel_outputs co LEFT JOIN articles a ON a.id = co.article_id WHERE ${range('co.created_at')} ORDER BY co.created_at LIMIT 20`),
+    my.query(`SELECT event_type, level, message, created_at FROM workflow_events WHERE ${range()} AND level IN ('warning','error') ORDER BY created_at LIMIT 25`),
+  ]);
+
+  // 拍板：当日文章状态终局变化
+  const VERDICT_STATUS = ['ready_for_review', 'needs_quality_revision', 'approved_for_publish', 'published', 'rejected', 'fact_check_failed'];
+  const verdicts = artTransitions.filter((t) => VERDICT_STATUS.includes(t.to_status)).map((t) => ({
+    articleId: t.entity_id, title: t.title || t.entity_id, to: t.to_status, reason: t.reason || '',
+    t: dt(t.created_at), bornDay: t.born ? rc.getDailyKey(new Date(t.born)) : null,
+  }));
+
+  // 当日推进的存量文章（非当天生成）
+  const bornIds = new Set(articlesBorn.map((x) => x.id));
+  const advanced = {};
+  for (const t of artTransitions) {
+    if (bornIds.has(t.entity_id)) continue;
+    if (!advanced[t.entity_id]) advanced[t.entity_id] = { articleId: t.entity_id, title: t.title || t.entity_id, bornDay: t.born ? rc.getDailyKey(new Date(t.born)) : null, moves: [] };
+    advanced[t.entity_id].moves.push({ from: t.from_status, to: t.to_status, reason: (t.reason || '').slice(0, 120), t: dt(t.created_at) });
+  }
+
+  // 选题决策汇总
+  const selected = topicDecisions.filter((d) => d.to_status === 'selected');
+  const deferred = topicDecisions.filter((d) => d.to_status === 'deferred');
+  const deferReasons = {};
+  deferred.forEach((d) => {
+    const key = (d.reason || '').includes('cluster') || (d.reason || '').includes('主题簇') ? '主题簇饱和'
+      : (d.reason || '').includes('category') || (d.reason || '').includes('分类') ? '业务分类饱和'
+      : (d.reason || '').includes('keyword') || (d.reason || '').includes('关键词') ? '关键词近期已用'
+      : (d.reason || '').includes('来源') ? '来源支撑不足' : '语义重复/其他';
+    deferReasons[key] = (deferReasons[key] || 0) + 1;
+  });
+
+  // 当日代表 run（优先 active daily）的 7 步执行状态，用于倒排流水线视图
+  const dayRunRow = runs.find((r) => r.run_scope === 'daily' && r.is_active)
+    || runs.find((r) => r.run_scope === 'daily')
+    || runs[runs.length - 1] || null;
+  const steps = dayRunRow ? await stepsForRun(dayRunRow) : [];
+
+  return {
+    date,
+    dayRunId: dayRunRow ? dayRunRow.id : null,
+    steps,
+    runs: runs.map((r) => ({
+      id: r.id, scope: r.run_scope, mode: r.run_mode, status: r.is_active ? runStatus(r.status) : 'superseded',
+      started: dt(r.started_at), finished: dt(r.finished_at), durMs: durMs(r.started_at, r.finished_at),
+      articles: r.articles_generated || 0, error: r.error_message || null,
+    })),
+    collect: {
+      total: srcStats[0].c,
+      byGroup: Object.fromEntries(srcGroups.filter((g) => g.k).map((g) => [g.k, g.c])),
+      byCategory: Object.fromEntries(srcCats.map((g) => [g.k, g.c])),
+      byType: Object.fromEntries(srcTypes.map((g) => [g.k, g.c])),
+      failures: srcFails.map((f) => ({ name: f.source_name, status: f.status, http: f.http_status, error: (f.error_message || '').slice(0, 80) })),
+    },
+    topics: {
+      created: topicsNew.count,
+      top: topicsNew.rows.slice(0, 10).map((t) => ({
+        id: t.id, topic: t.topic, score: t.score, value: t.content_value_score, priority: t.priority,
+        status: t.status, businessCategory: t.business_category, topicCluster: t.topic_cluster,
+        skipReason: t.selection_skip_reason, sources: srcHosts(t.source_urls_json),
+      })),
+      selected: selected.map((d) => ({ topic: d.topic || d.entity_id, raw: d.raw_score, value: d.content_value_score, selection: d.selection_score, businessCategory: d.business_category, t: dt(d.created_at), sources: srcHosts(d.source_urls_json) })),
+      deferredCount: deferred.length,
+      deferReasons,
+      deferredSample: deferred.slice(0, 6).map((d) => ({ topic: (d.topic || d.entity_id || '').slice(0, 50), raw: d.raw_score, reason: (d.reason || '').slice(0, 70) })),
+    },
+    articlesBorn: articlesBorn.map((x) => ({
+      id: x.id, title: x.title, slug: x.slug, status: x.status,
+      quality: x.quality_score, articleQuality: x.article_quality_score,
+      seo: x.seo_score, geo: x.geo_score, ...factMeta(x.fact_publish_readiness),
+      businessCategory: x.business_category, topicCluster: x.topic_cluster, created: dt(x.created_at),
+    })),
+    advancedArticles: Object.values(advanced),
+    factChecks: fcCount[0].c,
+    versionsNew: versionsNew.map((v) => ({ articleId: v.article_id, title: (v.title || '').slice(0, 40), label: v.version_label, mode: v.generation_mode, t: dt(v.created_at) })),
+    channelsNew: channelsNew.map((c) => ({ articleId: c.article_id, title: (c.title || '').slice(0, 30), channel: CHANNEL_KEY[c.channel] || c.channel, status: chStatus(c.status) })),
+    verdicts,
+    timeline: artTransitions.map((t) => ({
+      t: dt(t.created_at), kind: 'transition', entityId: t.entity_id,
+      title: (t.title || '').slice(0, 36), from: t.from_status, to: t.to_status,
+      reason: (t.reason || '').slice(0, 110), actor: t.actor || '系统', bornDay: t.born ? rc.getDailyKey(new Date(t.born)) : null,
+    })),
+    warnings: warnEvents.map((e) => ({ t: dt(e.created_at), level: e.level, type: e.event_type, message: (e.message || '').slice(0, 130) })),
+  };
+}
+
+// 标题里的 HTML 实体解码（RSS 采集常见 &#x7F8E; 形式）
+function deEnt(s) {
+  return String(s || '')
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'");
+}
+
+// 当日采集明细：按来源分组的条目列表（日报内嵌浏览，不跳页）
+async function uiDaySources(date) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const a = `${date} 00:00:00`;
+  const b = `${date} 23:59:59.999`;
+  const [rows, logs] = await Promise.all([
+    my.query('SELECT source_name, source_group, source_url, title, business_category, content_type, created_at FROM source_items WHERE created_at >= ? AND created_at <= ? ORDER BY source_name, created_at LIMIT 600', [a, b]),
+    my.query('SELECT source_name, status, http_status, error_message FROM source_collection_logs WHERE created_at >= ? AND created_at <= ?', [a, b]),
+  ]);
+  const logBy = {};
+  logs.forEach((l) => { logBy[l.source_name] = { status: l.status, http: l.http_status, error: (l.error_message || '').slice(0, 80) }; });
+  const groups = {};
+  for (const r of rows) {
+    const k = r.source_name || '未知来源';
+    if (!groups[k]) groups[k] = { name: k, group: r.source_group, count: 0, items: [] };
+    groups[k].count++;
+    if (groups[k].items.length < 50) {
+      groups[k].items.push({
+        title: deEnt(r.title).slice(0, 90) || '(无标题)', url: r.source_url,
+        category: r.business_category, type: r.content_type, t: dt(r.created_at),
+      });
+    }
+  }
+  // 采集失败、0 条入库的来源也要出现在列表里
+  for (const [name, l] of Object.entries(logBy)) {
+    if (l.status !== 'success' && !groups[name]) groups[name] = { name, group: null, count: 0, items: [] };
+  }
+  const sources = Object.values(groups).map((g) => ({ ...g, log: logBy[g.name] || null }))
+    .sort((x, y) => y.count - x.count);
+  return { date, total: rows.length, truncated: rows.length >= 600, sources };
+}
+
 // ---------- Topic Audition（选题压力测试结果，只读）----------
 async function uiAuditions(limit = 10) {
   const rows = await my.query(`SELECT id, rounds, limit_per_round, status, summary_json, created_at FROM topic_audition_runs ORDER BY created_at DESC LIMIT ${Math.min(50, limit)}`);
@@ -744,4 +934,4 @@ async function toggleConfig(table, id, enabled) {
   return { code: 200, data: { ok: true, id, enabled: !!enabled } };
 }
 
-module.exports = { uiBootstrap, uiArticle, uiRun, reviewArticle, toggleConfig, configDoc, uiAuditions, uiAudition };
+module.exports = { uiBootstrap, uiArticle, uiRun, reviewArticle, toggleConfig, configDoc, uiAuditions, uiAudition, uiDays, uiDay, uiDaySources };

@@ -2,7 +2,7 @@
    App shell — sidebar, router, run control（真实 API）, modals, toasts
    ============================================================ */
 const NAV = [
-  { id: "dashboard", label: "今日看板", icon: "home" },
+  { id: "dashboard", label: "生产日报", icon: "home" },
   { id: "library", label: "文章库", icon: "docs" },
   { id: "runs", label: "运行历史", icon: "history" },
   { id: "topics", label: "选题池", icon: "bulb" },
@@ -10,7 +10,7 @@ const NAV = [
 ];
 
 const PAGE_TITLE = {
-  dashboard: "今日看板", library: "文章库", detail: "文章详情",
+  dashboard: "生产日报", library: "文章库", detail: "文章详情",
   runs: "运行历史", runDetail: "运行详情", topics: "选题池", config: "配置管理",
 };
 

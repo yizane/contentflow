@@ -62,7 +62,7 @@ function PortfolioPanel() {
   if (!p || (p.deferredCount === 0 && p.lastSelected.length === 0)) return null;
   return (
     <Card style={{ marginBottom: 16 }}>
-      <CardHead icon="layers" title="组合决策" hint="选题不再是分数最高者胜：selection_score = 质量分 − 主题饱和惩罚 + 组合奖励" />
+      <CardHead icon="layers" title="组合决策" hint="选题不是分数最高者胜：选择分 = 价值分×0.55 + 原始分×0.25 ± 组合奖惩" />
       <div style={{ padding: "14px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
         {p.lastSelected.length > 0 && (
           <div style={{ display: "flex", gap: 9, padding: "10px 13px", background: "var(--ok-soft)", border: "1px solid var(--ok-line)", borderRadius: 9 }}>
@@ -70,7 +70,7 @@ function PortfolioPanel() {
             <div style={{ fontSize: 12.5, color: "var(--ink-2)", lineHeight: 1.6 }}>
               <b style={{ color: "var(--ok)" }}>最近选中</b>
               {p.lastSelected.map((s, i) => (
-                <div key={i}>「{s.topic.slice(0, 40)}…」质量分 {s.rawScore} → 选择分 <b>{s.selectionScore}</b>（{FLY.taxLabel("businessCategories", s.businessCategory)}{s.topicCluster ? ` / ${FLY.taxLabel("topicClusters", s.topicCluster)}` : ""}）</div>
+                <div key={i}>「{s.topic.slice(0, 40)}…」原始分 {s.rawScore} → 选择分 <b>{s.selectionScore}</b>（{FLY.taxLabel("businessCategories", s.businessCategory)}{s.topicCluster ? ` / ${FLY.taxLabel("topicClusters", s.topicCluster)}` : ""}）</div>
               ))}
             </div>
           </div>
@@ -81,7 +81,7 @@ function PortfolioPanel() {
             <div style={{ fontSize: 12.5, color: "var(--ink-2)", lineHeight: 1.6 }}>
               <b style={{ color: "var(--warn)" }}>{p.deferredCount} 个高分候选被延期</b>（主题近期已饱和，窗口期后自动回池，不是被拒）
               {p.deferred.slice(0, 4).map((d, i) => (
-                <div key={i} style={{ marginTop: 2 }}>「{d.topic.slice(0, 36)}…」质量分 {d.rawScore} → {d.selectionScore}　<span style={{ color: "var(--ink-3)" }}>{(d.reason || "").slice(0, 50)}</span></div>
+                <div key={i} style={{ marginTop: 2 }}>「{d.topic.slice(0, 36)}…」原始分 {d.rawScore} → {d.selectionScore}　<span style={{ color: "var(--ink-3)" }}>{(d.reason || "").slice(0, 50)}</span></div>
               ))}
             </div>
           </div>
@@ -187,7 +187,7 @@ function TopicPool({ nav, params }) {
                         <div style={{ width: 40 }}><Meter value={t.score} /></div>
                       </div>
                       {t.selectionScore != null && t.selectionScore !== t.score && (
-                        <div className="tnum" style={{ fontSize: 10.5, color: t.selectionScore > t.score ? "var(--ok)" : "var(--warn)", fontWeight: 700, marginTop: 2 }} title="组合选择分 = 质量分 − 主题饱和惩罚 + 组合奖励">选择分 {t.selectionScore}</div>
+                        <div className="tnum" style={{ fontSize: 10.5, color: t.selectionScore > t.score ? "var(--ok)" : "var(--warn)", fontWeight: 700, marginTop: 2 }} title="选择分 = 价值分×0.55 + 原始分×0.25 ± 组合奖惩">选择分 {t.selectionScore}</div>
                       )}
                     </td>
                     <td><span className="chip" style={{ height: 22, fontSize: 11.5, fontWeight: 700, color: t.priority === "P0" ? "var(--bad)" : t.priority === "P1" ? "var(--warn)" : "var(--ink-3)" }}>{t.priority}</span></td>

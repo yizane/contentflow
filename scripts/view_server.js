@@ -246,6 +246,17 @@ const server = http.createServer(async (req, res) => {
       const r = await ui.reviewArticle({ id: m[1], status: body.status, note: body.note, actor: body.actor || 'web' });
       return json(res, r.code, r.data);
     }
+    if (p === '/api/ui/days') {
+      return json(res, 200, { ok: true, days: await ui.uiDays(parseInt(q.get('limit') || '14', 10)) });
+    }
+    if ((m = p.match(/^\/api\/ui\/day\/(\d{4}-\d{2}-\d{2})$/))) {
+      const d = await ui.uiDay(m[1]);
+      return d ? json(res, 200, { ok: true, day: d }) : json(res, 404, { ok: false, error: 'bad date' });
+    }
+    if ((m = p.match(/^\/api\/ui\/day\/(\d{4}-\d{2}-\d{2})\/sources$/))) {
+      const d = await ui.uiDaySources(m[1]);
+      return d ? json(res, 200, { ok: true, detail: d }) : json(res, 404, { ok: false, error: 'bad date' });
+    }
     if (p === '/api/topic-auditions' && req.method === 'GET') {
       return json(res, 200, { ok: true, auditions: await ui.uiAuditions(parseInt(q.get('limit') || '10', 10)) });
     }
