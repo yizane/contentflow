@@ -4,14 +4,16 @@
    ============================================================ */
 (function () {
   // ---------- 静态字典 ----------
+  // 编号与 docs/16 架构图主链路 1-8 对齐（6 补来源与修订暂无 workflow_steps 记录）
   const STEP_DEFS = [
-    { key: "collect",  n: 1, title: "采集选题源",  icon: "rss",     enter: "采集源明细" },
-    { key: "topics",   n: 2, title: "生成主题池",  icon: "bulb",    enter: "选题池" },
-    { key: "tasks",    n: 3, title: "创建文章任务", icon: "listplus",enter: "选题池" },
-    { key: "generate", n: 4, title: "生成文章",    icon: "sparkles",enter: "文章详情" },
-    { key: "factcheck",n: 5, title: "事实核查",    icon: "shield",  enter: "核查报告" },
-    { key: "channels", n: 6, title: "渠道改写",    icon: "share",   enter: "渠道稿" },
-    { key: "score",    n: 7, title: "SEO/GEO 评分",icon: "gauge",   enter: "评分明细" },
+    { key: "collect",   n: 1, title: "采集来源",     icon: "rss",     enter: "采集源明细" },
+    { key: "topics",    n: 2, title: "生成主题池",   icon: "bulb",    enter: "选题池" },
+    { key: "tasks",     n: 3, title: "创建文章任务", icon: "listplus",enter: "选题池" },
+    { key: "generate",  n: 4, title: "生成文章",     icon: "sparkles",enter: "文章详情" },
+    { key: "factcheck", n: 5, title: "事实核查",     icon: "shield",  enter: "核查报告" },
+    { key: "sourcesfix",n: 6, title: "补来源与修订", icon: "user",    enter: "文章详情" },
+    { key: "channels",  n: 7, title: "渠道改写",     icon: "share",   enter: "渠道稿" },
+    { key: "score",     n: 8, title: "SEO/GEO 评分", icon: "gauge",   enter: "评分明细" },
   ];
 
   const ART_STATUS = {

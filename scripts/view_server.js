@@ -200,12 +200,12 @@ function readBody(req) {
 // 白名单：step key → pipeline CLI。绝不透传任意命令/参数。
 const STEP_CMDS = {
   collect:   { file: 'pipeline/sources_collect.js',       label: '采集来源' },
-  classify:  { file: 'pipeline/content_classify.js',      label: '内容分类' },
+  classify:  { file: 'pipeline/content_classify.js',      label: '分类回填（主链路外）' },
   topics:    { file: 'pipeline/topics_generate.js',       label: '生成主题池' },
-  jobs:      { file: 'pipeline/jobs_create.js',           label: '组合选题' },
+  jobs:      { file: 'pipeline/jobs_create.js',           label: '创建文章任务' },
   generate:  { file: 'pipeline/jobs_run.js',              label: '生成文章' },
   factcheck: { file: 'pipeline/factcheck_run.js',         label: '事实核查' },
-  sourcesfix:{ file: 'pipeline/sources_fix.js',           label: '自动补源' },
+  sourcesfix:{ file: 'pipeline/sources_fix.js',           label: '补来源与修订' },
   channels:  { file: 'pipeline/channels_generate.js',     label: '渠道改写' },
   score:     { file: 'pipeline/score_seo_geo.js',         label: 'SEO/GEO 评分' },
   quality:   { file: 'pipeline/articles_quality_score.js',label: '质量主评分' },
@@ -213,15 +213,23 @@ const STEP_CMDS = {
 };
 const stepJobs = {}; // step → { running, startedAt, finishedAt, exitCode, log: [...last 200 lines] }
 
-function startStep(step) {
+async function startStep(step) {
   const cmd = STEP_CMDS[step];
   if (!cmd) return { code: 400, data: { ok: false, error: `未知步骤: ${step}` } };
   if (stepJobs[step] && stepJobs[step].running) {
     return { code: 409, data: { ok: false, error: `${cmd.label} 已在运行中` } };
   }
-  const job = { step, label: cmd.label, running: true, startedAt: new Date().toISOString(), finishedAt: null, exitCode: null, log: [] };
+  // 把单步重跑挂到当天 active daily run（pipeline CLI 都认 ENGINE_RUN_ID），
+  // 否则产物 engine_run_id 为空，运行历史/按 run 追溯都断
+  const env = { ...process.env };
+  try {
+    const run = (await my.query("SELECT id FROM engine_runs WHERE daily_key = ? AND run_scope = 'daily' AND is_active = 1 LIMIT 1", [rc.getDailyKey()]))[0];
+    if (run) env.ENGINE_RUN_ID = run.id;
+  } catch (_) { /* 查不到就不挂，单步仍可跑 */ }
+  const job = { step, label: cmd.label, running: true, startedAt: new Date().toISOString(), finishedAt: null, exitCode: null, log: [], engineRunId: env.ENGINE_RUN_ID || null };
   stepJobs[step] = job;
-  const child = spawn('node', [path.join(ROOT, 'scripts', cmd.file)], { cwd: ROOT, env: process.env });
+  if (env.ENGINE_RUN_ID) job.log.push(`[控制台] 本次单步挂到当天 run: ${env.ENGINE_RUN_ID}`);
+  const child = spawn('node', [path.join(ROOT, 'scripts', cmd.file)], { cwd: ROOT, env });
   const push = (chunk) => {
     for (const line of String(chunk).split('\n')) {
       if (!line.trim()) continue;
@@ -242,6 +250,27 @@ function stepStatus() {
     label: j.label, running: j.running, startedAt: j.startedAt, finishedAt: j.finishedAt,
     exitCode: j.exitCode, lastLines: j.log.slice(-8),
   }]));
+}
+
+// pipeline 的过程日志写在 logs/<name>-YYYYMMDD.log（不打 stdout），
+// 抽屉里把任务启动后的文件日志也实时带上，否则 AI 调用的几分钟里看起来像卡死
+function processLogsSince(startedAtIso, max = 150) {
+  const since = startedAtIso ? new Date(startedAtIso).getTime() - 2000 : 0;
+  const d = new Date();
+  const day = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  let all = [];
+  for (const name of ['engine', 'openclaw']) {
+    const file = path.join(logger.LOG_DIR, `${name}-${day}.log`);
+    try {
+      const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).slice(-400);
+      for (const ln of lines) {
+        const m = ln.match(/^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]/);
+        if (m && new Date(m[1].replace(' ', 'T')).getTime() >= since) all.push(ln.slice(0, 400));
+      }
+    } catch (_) { /* 当天还没有该日志文件 */ }
+  }
+  all.sort(); // 行首 [时间戳] 字符串序即时间序
+  return all.slice(-max);
 }
 
 async function latestReport() {
@@ -310,7 +339,7 @@ const server = http.createServer(async (req, res) => {
         ui.uiSourcesOverview(),
         ui.uiCanonicalSources({ lane: q.get('lane') || '', status: q.get('status') || '', source: q.get('source') || '', limit: parseInt(q.get('limit') || '120', 10) }),
       ]);
-      return json(res, 200, { ok: true, overview, items: canon.items, sourceFacet: canon.sourceFacet });
+      return json(res, 200, { ok: true, overview, items: canon.items, sourceFacet: canon.sourceFacet, itemCounts: canon.itemCounts, itemTotal: canon.itemTotal });
     }
     if (p === '/api/ui/observations') {
       const d = await ui.uiObservations({ date: q.get('date') || '', runId: q.get('run') || '', status: q.get('status') || '', limit: parseInt(q.get('limit') || '200', 10) });
@@ -319,14 +348,16 @@ const server = http.createServer(async (req, res) => {
     // ---------- Web 控制台 ----------
     if (p === '/api/step/run' && req.method === 'POST') {
       const body = await readBody(req);
-      const r = startStep(String(body.step || ''));
+      const r = await startStep(String(body.step || ''));
       return json(res, r.code, r.data);
     }
     if (p === '/api/step/status') return json(res, 200, { ok: true, steps: stepStatus() });
     if ((m = p.match(/^\/api\/step\/log\/([a-z]+)$/))) {
       const j = stepJobs[m[1]];
-      return j ? json(res, 200, { ok: true, step: m[1], label: j.label, running: j.running, exitCode: j.exitCode, log: j.log })
-               : json(res, 404, { ok: false, error: '该步骤还没有运行记录' });
+      return j ? json(res, 200, {
+        ok: true, step: m[1], label: j.label, running: j.running, exitCode: j.exitCode,
+        startedAt: j.startedAt, log: j.log, fileLog: processLogsSince(j.startedAt),
+      }) : json(res, 404, { ok: false, error: '该步骤还没有运行记录' });
     }
     if (p === '/api/ui/model-runs') {
       const d = await ui.uiModelRuns({ taskType: q.get('task') || '', runId: q.get('run') || '', articleId: q.get('article') || '', limit: parseInt(q.get('limit') || '50', 10) });

@@ -186,14 +186,30 @@ function StepLogDrawer({ initialStep, onClose }) {
         className="mono" style={{ flex: 1, overflowY: "auto", padding: "10px 16px", fontSize: 11.5, lineHeight: 1.6, color: "#c8cdd6" }}>
         {!cur ? <div style={{ color: "#6f7886" }}>（暂无日志）</div>
           : !data ? <div style={{ color: "#6f7886" }}>正在加载…</div>
-          : (data.log || []).length === 0 ? <div style={{ color: "#6f7886" }}>进程已启动，等待输出…</div>
-          : data.log.map((ln, i) => (
-            <div key={i} style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", color: /error|失败|Error|FAIL/i.test(ln) ? "#f8a5a5" : /warn|警告/i.test(ln) ? "#f5d08a" : "#c8cdd6" }}>{ln}</div>
-          ))}
-        {data && !data.running && data.exitCode != null && (
-          <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #343943", color: data.exitCode === 0 ? "#34d399" : "#f87171", fontWeight: 700 }}>
-            ▌进程结束 · 退出码 {data.exitCode}{data.exitCode === 0 ? "（成功）" : "（失败）"}
-          </div>
+          : (
+          <>
+            {/* 过程日志（logger 文件）：AI 调用进度在这里 */}
+            {(data.fileLog || []).map((ln, i) => (
+              <div key={"f" + i} style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", color: /ERROR|失败/i.test(ln) ? "#f8a5a5" : /WARN|警告/i.test(ln) ? "#f5d08a" : /OpenClaw 调用|OpenClaw 完成/.test(ln) ? "#93c5fd" : "#9aa3b2" }}>{ln}</div>
+            ))}
+            {(data.log || []).length > 0 && (data.fileLog || []).length > 0 && (
+              <div style={{ margin: "6px 0", color: "#6f7886" }}>── 进程输出 ──</div>
+            )}
+            {(data.log || []).map((ln, i) => (
+              <div key={i} style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", color: /error|失败|Error|FAIL/i.test(ln) ? "#f8a5a5" : /warn|警告/i.test(ln) ? "#f5d08a" : "#c8cdd6" }}>{ln}</div>
+            ))}
+            {data.running && (
+              <div style={{ marginTop: 6, color: "#93c5fd", display: "flex", alignItems: "center", gap: 7 }}>
+                <span className="spin" style={{ display: "flex" }}><Icon name="refresh" size={11} /></span>
+                运行中 · 已 {fmtDur(Date.now() - new Date(data.startedAt).getTime())}（AI 调用阶段可能 1-3 分钟无新输出，过程见上方蓝色行）
+              </div>
+            )}
+            {!data.running && data.exitCode != null && (
+              <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #343943", color: data.exitCode === 0 ? "#34d399" : "#f87171", fontWeight: 700 }}>
+                ▌进程结束 · 退出码 {data.exitCode}{data.exitCode === 0 ? "（成功）" : "（失败）"}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

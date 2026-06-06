@@ -76,13 +76,20 @@ function CanonicalTable({ data, lane, setLane, usage, setUsage, src, setSrc, loa
           </button>
         ))}
       </div>
+      {/* 索引滞后提示：素材表里有、去重索引还没建的条数 */}
+      {data && data.itemTotal > total && (
+        <div style={{ margin: "9px 16px 0", display: "flex", gap: 8, padding: "8px 12px", background: "var(--warn-soft)", border: "1px solid var(--warn-line)", borderRadius: 8, fontSize: 12, color: "var(--warn)", alignItems: "center" }}>
+          <Icon name="alert" size={13} style={{ flex: "0 0 auto" }} />
+          有 {data.itemTotal - total} 条新采集素材尚未建立去重索引（不在下表中）——采集链路的索引同步待接通，索引建立后自动归入对应线别。
+        </div>
+      )}
       {loading ? <Empty icon="clock" title="正在加载素材库…" /> : !items.length ? <Empty icon="inbox" title="没有符合条件的素材" desc="换个线别、来源或使用状态试试。" /> : (
         <table className="tbl">
           <thead><tr>
             <th>素材</th><th style={{ width: 150 }}>来源</th><th style={{ width: 70 }}>线别</th><th style={{ width: 72 }}>使用状态</th>
             <th style={{ width: 56 }} title="同一 URL 被各采集源观察到的总次数">被看见</th>
             <th style={{ width: 64 }} title="进入选题 prompt 的次数">进 prompt</th>
-            <th style={{ width: 84 }}>首次发现</th><th style={{ width: 84 }}>最近看见</th><th style={{ width: 84 }}>复活时间</th>
+            <th style={{ width: 110 }} title="首次抓到这条素材的时间；多次被看见/复活时以小字附注">抓取时间</th>
           </tr></thead>
           <tbody>
             {items.map((x) => {
@@ -106,9 +113,15 @@ function CanonicalTable({ data, lane, setLane, usage, setUsage, src, setSrc, loa
                   <td><Badge tone={us.tone} dot={false}>{us.text}</Badge></td>
                   <td className="tnum" style={{ fontWeight: 700 }}>{x.seenCount}</td>
                   <td className="tnum" style={{ fontWeight: 700, color: x.timesInPrompt > 0 ? "var(--ok)" : "var(--ink-4)" }}>{x.timesInPrompt}</td>
-                  <td className="muted mono" style={{ fontSize: 11 }}>{(FLY.fmtDT(x.firstSeen) || "").slice(5, 16)}</td>
-                  <td className="muted mono" style={{ fontSize: 11 }}>{(FLY.fmtDT(x.lastSeen) || "").slice(5, 16)}</td>
-                  <td className="muted mono" style={{ fontSize: 11 }}>{x.reactivatedAt ? (FLY.fmtDT(x.reactivatedAt) || "").slice(5, 16) : "—"}</td>
+                  <td>
+                    <div className="mono" style={{ fontSize: 11, color: "var(--ink-2)" }}>{(FLY.fmtDT(x.firstSeen) || "").slice(5, 16)}</div>
+                    {x.seenCount > 1 && x.lastSeen && x.lastSeen !== x.firstSeen && (
+                      <div className="mono" style={{ fontSize: 10, color: "var(--ink-4)", marginTop: 1 }}>最近看见 {(FLY.fmtDT(x.lastSeen) || "").slice(5, 16)}</div>
+                    )}
+                    {x.reactivatedAt && (
+                      <div className="mono" style={{ fontSize: 10, color: "var(--info)", marginTop: 1 }}>复活 {(FLY.fmtDT(x.reactivatedAt) || "").slice(5, 16)}</div>
+                    )}
+                  </td>
                 </tr>
               );
             })}
@@ -202,12 +215,12 @@ function SourcesPage({ nav, params, toast }) {
     return () => { alive = false; };
   }, [tab, obsDate, obsStatus]);
 
-  // 采集源配置 tab：拉一次全量来源聚合，给每个源标注库内素材数
+  // 采集源配置 tab：库内素材数直接数 source_items（canonical 去重索引可能滞后，不能用）
   useEffect(() => {
     if (tab !== "config" || cfgCounts != null) return;
     let alive = true;
     FLY.loadSources({ limit: 1 }).then((r) => {
-      if (alive) setCfgCounts(Object.fromEntries((r.sourceFacet || []).map((f) => [f.name, f.count])));
+      if (alive) setCfgCounts(r.itemCounts || {});
     }).catch(() => { if (alive) setCfgCounts({}); });
     return () => { alive = false; };
   }, [tab]);

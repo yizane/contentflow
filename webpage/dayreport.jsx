@@ -49,7 +49,7 @@ const VERDICT_META = {
 };
 
 /* ---------- 流水线行：挂在左侧时间轴轨道上的阶段节点 ---------- */
-function FlowRow({ icon, n, title, tone = "mut", headline, unit, sub, steps, open, onToggle, jump, problem, hero, children }) {
+function FlowRow({ icon, n, title, tone = "mut", headline, unit, sub, desc, steps, open, onToggle, jump, problem, hero, children }) {
   const abnormal = (steps || []).filter((s) => s.status !== "success" && s.status !== "pending");
   const skipped = abnormal.length > 0 && abnormal.every((s) => s.status === "skipped");
   const zero = headline === 0 || headline === "0" || headline === "—" || headline === "+0";
@@ -103,6 +103,7 @@ function FlowRow({ icon, n, title, tone = "mut", headline, unit, sub, steps, ope
       </button>
       {open && (
         <div className="fade-in" style={{ margin: "2px 6px 9px 43px", padding: "12px 14px", background: "var(--surface-2)", border: "1px solid var(--line-soft)", borderRadius: 10, fontSize: 12.5, maxHeight: 340, overflowY: "auto" }}>
+          {desc && <div style={{ fontSize: 11.5, color: "var(--ink-4)", marginBottom: 9, lineHeight: 1.55, paddingBottom: 8, borderBottom: "1px dashed var(--line)" }}>{desc}</div>}
           {(steps || []).filter((s) => s.error).map((s, i) => (
             <div key={i} style={{ display: "flex", gap: 8, padding: "9px 11px", background: "var(--bad-soft)", border: "1px solid var(--bad-line)", borderRadius: 8, marginBottom: 9 }}>
               <Icon name="alert" size={14} style={{ color: "var(--bad)", flex: "0 0 auto", marginTop: 1 }} />
@@ -117,15 +118,18 @@ function FlowRow({ icon, n, title, tone = "mut", headline, unit, sub, steps, ope
   );
 }
 
-/* 主题的来源线索：可点的来源域名小标签 */
+/* 主题的来源线索：同域名合并为 host ×N（同站多篇文章），tooltip 列出每篇 URL */
 function SourceChips({ sources }) {
   if (!sources || !sources.length) return null;
+  const byHost = {};
+  sources.forEach((s) => { (byHost[s.host] = byHost[s.host] || []).push(s.url); });
   return (
     <span style={{ marginLeft: 4 }}>
-      {sources.map((s, i) => (
-        <a key={i} href={s.url} target="_blank" rel="noreferrer" className="chip" onClick={(e) => e.stopPropagation()}
+      {Object.entries(byHost).map(([host, urls]) => (
+        <a key={host} href={urls[0]} target="_blank" rel="noreferrer" className="chip" onClick={(e) => e.stopPropagation()}
           style={{ height: 17, fontSize: 10, marginLeft: 4, textDecoration: "none", color: "var(--info)", borderColor: "var(--info-line)", background: "var(--info-soft)" }}
-          title={s.url}>{s.host}</a>
+          title={urls.length > 1 ? `该站 ${urls.length} 篇文章：\n` + urls.join("\n") : urls[0]}>
+          {host}{urls.length > 1 ? ` ×${urls.length}` : ""}</a>
       ))}
     </span>
   );
@@ -178,12 +182,19 @@ function DayReport({ date, nav, toast }) {
       if (toast) toast(`重跑被拒：${(e.data && e.data.error) || e.message}`, { icon: "xCircle", color: "var(--bad-solid)", dur: 5000 });
     }
   };
-  // 行内控制按钮：重跑（仅今天）+ 模型调用（任何日期）
-  const Rerun = ({ step, label }) => isToday ? (
-    <Btn kind="ghost" size="sm" icon="refresh" disabled={!!running[step]} onClick={() => rerun(step, label)}>
-      {running[step] ? "重跑中…" : `重跑${label}`}
-    </Btn>
-  ) : null;
+  // 行内控制按钮：重跑作用于「当前数据状态」，任何日期都可用；
+  // 例外：历史日的采集禁用（重新采集只会产生今天的新观察，改写不了历史）——禁用而非隐藏，保持布局可预期
+  const Rerun = ({ step, label }) => {
+    const blocked = !isToday && step === "collect";
+    return (
+      <Btn kind="ghost" size="sm" icon="refresh" disabled={blocked || !!running[step]}
+        title={blocked ? "历史日不可重新采集：采集只作用于今天，回到「今天」再跑"
+          : isToday ? undefined : `产物计入今天（${FLY.DAILY}），不会改写正在查看的历史日`}
+        onClick={() => !blocked && rerun(step, label)}>
+        {running[step] ? "重跑中…" : `重跑${label}`}
+      </Btn>
+    );
+  };
   const AiBtn = ({ task }) => (
     <Btn kind="ghost" size="sm" icon="sparkles" onClick={() => setMrModal({ task: task || "" })}>模型调用</Btn>
   );
@@ -265,13 +276,14 @@ function DayReport({ date, nav, toast }) {
           {/* 时间轴轨道 */}
           <span aria-hidden style={{ position: "absolute", left: 31, top: 34, bottom: 34, width: 2, background: "var(--line)", borderRadius: 1 }} />
 
-          <FlowRow icon="rss" n="①" title="采集" tone="info" steps={st("collect")} problem={failed("collect")}
+          <FlowRow icon="rss" n="①" title="采集来源" tone="info" steps={st("collect")} problem={failed("collect")}
             headline={d.collect.total} unit={d.collect.basis === "observations" ? "次观察" : "条资讯"}
             sub={d.collect.failures.length ? `${d.collect.failures.length} 个源异常`
               : d.collect.observed ? ["new_source", "seen_source", "reactivated_source", "ignored"].filter((k) => d.collect.observed[k]).map((k) => `${FLY.obsStatus(k).text} ${d.collect.observed[k]}`).join(" · ")
               : Object.entries(d.collect.byCategory).slice(0, 4).map(([k, c]) => `${FLY.taxLabel("businessCategories", k)} ${c}`).join(" · ")}
-            open={open === 6} onToggle={tg(6)}
-            jump={<><Rerun step="collect" label="采集" /><Rerun step="classify" label="分类" /><AiBtn task="" /><Btn kind="ghost" size="sm" iconR="chevR" onClick={() => nav("sources", { day: date })}>数据源总览</Btn></>}>
+            open={open === 0} desc={"从已启用的数据源抓取当天材料：RSS/网页走规则采集，搜索类源才调 OpenClaw；采集后自动做内容分类 → 写入 source_items、采集日志、内容分类"}
+            onToggle={tg(0)}
+            jump={<><Rerun step="collect" label="采集" /><AiBtn task="" /><Btn kind="ghost" size="sm" iconR="chevR" onClick={() => nav("sources", { day: date })}>数据源总览</Btn></>}>
             {/* 观察判定分布（去重采集：新源 / 重复 / 复活 / 忽略）*/}
             {d.collect.observed && (
               <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
@@ -347,12 +359,35 @@ function DayReport({ date, nav, toast }) {
             </div>
           </FlowRow>
 
-          <FlowRow icon="bulb" n="②③" title="选题（主题池→组合）" tone="brand"
-            steps={[...st("topics", "主题池"), ...st("tasks", "组合选题")]} problem={failed("topics") || failed("tasks")}
+          <FlowRow icon="bulb" n="②" title="生成主题池" tone="brand"
+            steps={st("topics")} problem={failed("topics")}
             headline={`+${d.topics.created}`} unit="候选"
+            sub={skipReason("topics") || `当日新增 ${d.topics.created} 个候选主题`}
+            desc={"把来源材料提炼成候选主题（OpenClaw）：组装 source/关键词/近期已写主题，校验 JSON、分类、来源 URL、重复与关键词节流 → 写入 topic_candidates、model_runs。注意：这里的分数是『选题分』（这个题值不值得写），不是文章分——文章在 ④ 生成后才有质量评分。"}
+            open={open === 1} onToggle={tg(1)}
+            jump={<><Rerun step="topics" label="主题池" /><AiBtn task="topic_generation" /></>}>
+            {d.topics.top.length > 0 && (
+              <div>
+                <b style={{ fontSize: 11.5, color: "var(--ink-3)" }}>当日高分候选</b>
+                {d.topics.top.slice(0, 5).map((t, i) => (
+                  <div key={i} style={{ fontSize: 11.5, marginTop: 3 }}>
+                    <span className="mono" style={{ fontSize: 10, color: "var(--ink-4)" }}>{(FLY.fmtDT(t.t) || "").slice(5)}</span>{" "}
+                    <span className="tnum">{t.score}</span> 分 [{FLY.taxLabel("businessCategories", t.businessCategory)}] {t.topic.slice(0, 38)}
+                    <SourceChips sources={t.sources} />
+                  </div>
+                ))}
+              </div>
+            )}
+            {!d.topics.top.length && <span style={{ color: "var(--ink-4)" }}>当日没有新增候选主题</span>}
+          </FlowRow>
+
+          <FlowRow icon="listplus" n="③" title="创建文章任务" tone="brand"
+            steps={st("tasks")} problem={failed("tasks")}
+            headline={d.topics.selected.length} unit="个任务"
             sub={skipReason("tasks") || `选中 ${d.topics.selected.length} · 延期 ${d.topics.deferredCount}`}
-            open={open === 5} onToggle={tg(5)}
-            jump={<><Rerun step="topics" label="主题池" /><Rerun step="jobs" label="组合选题" /><AiBtn task="topic_generation" />{date === FLY.DAILY && <Btn kind="ghost" size="sm" iconR="chevR" onClick={() => nav("topics")}>选题池</Btn>}</>}>
+            desc={"从候选主题里选出今天要写的题：按分数、来源支撑、分类配额、重复风险做组合选择（纯规则，不调模型）→ 写入 article_jobs、状态流转"}
+            open={open === 2} onToggle={tg(2)}
+            jump={<><Rerun step="jobs" label="创建任务" />{date === FLY.DAILY && <Btn kind="ghost" size="sm" iconR="chevR" onClick={() => nav("topics")}>选题池</Btn>}</>}>
             {d.topics.selected.length > 0 && (
               <div style={{ marginBottom: 8 }}>
                 <b style={{ color: "var(--ok)", fontSize: 11.5 }}>选中</b>
@@ -371,23 +406,14 @@ function DayReport({ date, nav, toast }) {
                 {d.topics.deferredSample.map((x, i) => <div key={i} style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 2 }}>⏸ {x.topic}…（{x.reason}）</div>)}
               </div>
             )}
-            {d.topics.top.length > 0 && (
-              <div>
-                <b style={{ fontSize: 11.5, color: "var(--ink-3)" }}>当日高分候选</b>
-                {d.topics.top.slice(0, 5).map((t, i) => (
-                  <div key={i} style={{ fontSize: 11.5, marginTop: 3 }}>
-                    <span className="tnum">{t.score}</span> 分 [{FLY.taxLabel("businessCategories", t.businessCategory)}] {t.topic.slice(0, 38)}
-                    <SourceChips sources={t.sources} />
-                  </div>
-                ))}
-              </div>
-            )}
+            {!d.topics.selected.length && !d.topics.deferredCount && <span style={{ color: "var(--ink-4)" }}>当日没有组合选题动作</span>}
           </FlowRow>
 
           <FlowRow icon="sparkles" n="④" title="生成文章" tone="ok" steps={st("generate")} problem={failed("generate")}
             headline={d.articlesBorn.length} unit="篇新文章"
             sub={skipReason("generate") || d.articlesBorn.map((x) => x.title.slice(0, 16)).join("；") || "当日无新文章"}
-            open={open === 4} onToggle={tg(4)}
+            open={open === 3} desc={"根据文章任务生成正文和结构化文章 JSON（OpenClaw 按策略写稿，本地校验字段与质量报告；不合格重试）→ 写入 articles、article_versions、quality_reports"}
+            onToggle={tg(3)}
             jump={<><Rerun step="generate" label="生成" /><AiBtn task="article_generation" /><Btn kind="ghost" size="sm" iconR="chevR" onClick={() => nav("library", { day: date })}>在文章库查看该日</Btn></>}>
             {d.articlesBorn.map((x) => (
               <div key={x.id} className="clickable" onClick={() => nav("detail", { id: x.id })}
@@ -401,23 +427,34 @@ function DayReport({ date, nav, toast }) {
             {!d.articlesBorn.length && <span style={{ color: "var(--ink-4)" }}>当日无新文章。往上看选题/采集是否有产出。</span>}
           </FlowRow>
 
-          <FlowRow icon="shield" n="⑤" title="核查 + 质量门禁" tone="warn" steps={st("factcheck")} problem={failed("factcheck")}
+          <FlowRow icon="shield" n="⑤" title="事实核查" tone="warn" steps={st("factcheck")} problem={failed("factcheck")}
             headline={d.factChecks} unit="次核查"
-            sub={skipReason("factcheck") || `新版本 ${d.versionsNew.length} 个`}
-            open={open === 3} onToggle={tg(3)}
-            jump={<><Rerun step="factcheck" label="核查" /><Rerun step="quality" label="质量评分" /><AiBtn task="fact_check" /></>}>
+            sub={skipReason("factcheck") || "风险等级 · 缺来源点 · 必修项"}
+            open={open === 4} desc={"检查文章里的事实、数字、结论和来源支撑（OpenClaw 输出风险等级、缺来源点、必修项）→ 写入 fact_checks、source_resolutions；文章进入待审/待补来源/核查失败"}
+            onToggle={tg(4)}
+            jump={<><Rerun step="factcheck" label="核查" /><AiBtn task="fact_check" /></>}>
+            {!d.factChecks && <span style={{ color: "var(--ink-4)" }}>当日无核查活动</span>}
+          </FlowRow>
+
+          <FlowRow icon="user" n="⑥" title="补来源与修订" tone="warn" steps={st("sourcesfix")}
+            headline={d.versionsNew.length} unit="个新版本"
+            sub={d.versionsNew.length ? d.versionsNew.map((v) => v.label).join("、") : "当日无补源/修订动作"}
+            desc={"修复事实核查指出的缺来源与高风险表达：补权威来源、局部改写、重新核查；多轮不收敛转人工 → 写入新版 article_versions、补源记录"}
+            open={open === 5} onToggle={tg(5)}
+            jump={<><Rerun step="sourcesfix" label="补源" /><AiBtn task="source_resolution" /></>}>
             {d.versionsNew.map((v, i) => (
               <div key={i} style={{ fontSize: 11.5, marginTop: 3 }} className="clickable" onClick={() => nav("detail", { id: v.articleId })}>
                 <span className="mono" style={{ fontWeight: 700 }}>{v.label}</span> {v.title}… <span style={{ color: "var(--ink-4)" }}>{v.mode === "fact_checked_revision" ? "补源修订" : "初稿"}</span>
               </div>
             ))}
-            {!d.versionsNew.length && !d.factChecks && <span style={{ color: "var(--ink-4)" }}>当日无核查/修订活动</span>}
+            {!d.versionsNew.length && <span style={{ color: "var(--ink-4)" }}>当日没有产生新版本。事实核查发现缺来源时，这一步补权威来源并修订正文。</span>}
           </FlowRow>
 
-          <FlowRow icon="share" n="⑥" title="渠道改写" tone="info" steps={st("channels")} problem={failed("channels")}
+          <FlowRow icon="share" n="⑦" title="渠道改写" tone="info" steps={st("channels")} problem={failed("channels")}
             headline={d.channelsNew.length} unit="篇渠道稿"
             sub={skipReason("channels") || "公众号 / 抖音 / 小红书"}
-            open={open === 2} onToggle={tg(2)}
+            open={open === 6} desc={"把已就绪文章改写成渠道稿：按公众号、抖音、小红书的结构分别生成，检查渠道结构与禁词 → 写入 channel_outputs"}
+            onToggle={tg(6)}
             jump={<><Rerun step="channels" label="渠道" /><AiBtn task="channel_repurpose" /></>}>
             {d.channelsNew.map((c, i) => (
               <div key={i} style={{ fontSize: 11.5, marginTop: 3 }}>
@@ -427,10 +464,11 @@ function DayReport({ date, nav, toast }) {
             {!d.channelsNew.length && <span style={{ color: "var(--ink-4)" }}>当日无渠道稿</span>}
           </FlowRow>
 
-          <FlowRow icon="gauge" n="⑦" title="SEO/GEO 评分" tone="info" steps={st("score")} problem={failed("score")}
+          <FlowRow icon="gauge" n="⑧" title="SEO/GEO 评分" tone="info" steps={st("score")} problem={failed("score")}
             headline={stepBy.score && stepBy.score.metrics && stepBy.score.metrics.length ? stepBy.score.metrics[0][1] : "—"} unit="篇"
             sub={skipReason("score") || (stepBy.score ? stepBy.score.summary : "建议线，不拦发布")}
-            open={open === 1} onToggle={tg(1)}
+            open={open === 7} desc={"给文章做搜索与 AI 引用友好度评估（SEO/GEO/事实分/业务契合/可读性）：辅助终审与优化方向，不覆盖质量主门禁 → 写入 seo_geo_scores"}
+            onToggle={tg(7)}
             jump={<><Rerun step="score" label="评分" /><AiBtn task="seo_geo_score" /></>}>
             {stepBy.score ? (
               <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
@@ -442,7 +480,7 @@ function DayReport({ date, nav, toast }) {
 
           <FlowRow icon="flag" n="终" title="拍板 · 最终产出" hero
             tone={verdictBad ? "bad" : d.verdicts.length ? "ok" : "mut"} problem={verdictBad}
-            headline={d.verdicts.length} unit="个终局" open={open === 0} onToggle={tg(0)}
+            headline={d.verdicts.length} unit="个终局" open={open === 8} onToggle={tg(8)}
             sub={Object.entries(verdictBreakdown).map(([k, c]) => `${k}×${c}`).join(" · ") || "当日无文章终局变化"}
             jump={<><Btn kind="ghost" size="sm" iconR="chevR" onClick={() => nav("library", { day: date })}>在文章库查看该日</Btn><AiBtn task="" /></>}>
             {d.verdicts.map((v, i) => {

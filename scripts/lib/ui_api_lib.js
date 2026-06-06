@@ -320,7 +320,7 @@ async function trend7d() {
 async function configUI() {
   const [kw, src, docs] = await Promise.all([
     my.query('SELECT id, keyword, cluster, intent, priority, enabled FROM config_keywords ORDER BY priority, cluster, keyword'),
-    my.query('SELECT id, name, group_name, type, enabled FROM config_sources ORDER BY group_name, name'),
+    my.query('SELECT id, name, group_name, type, enabled, url, site_url, query_text FROM config_sources ORDER BY group_name, name'),
     my.query('SELECT config_key, config_type, version, updated_by, updated_at FROM app_configs ORDER BY config_type, config_key'),
   ]);
   // 源健康度：看所有采集日志中该源的失败情况
@@ -343,7 +343,11 @@ async function configUI() {
   const HIGH_RISK = ['production_policy', 'internal_claims', 'models'];
   return {
     keywords: kw.map((k) => ({ id: k.id, word: k.keyword, group: k.cluster || '—', intent: k.intent, priority: k.priority, enabled: !!k.enabled })),
-    sources: src.map((s) => ({ id: s.id, name: s.name, group: s.group_name || '—', type: s.type || '—', enabled: !!s.enabled, health: healthOf(s.name, s.enabled) })),
+    sources: src.map((s) => ({
+      id: s.id, name: s.name, group: s.group_name || '—', type: s.type || '—', enabled: !!s.enabled,
+      health: healthOf(s.name, s.enabled),
+      url: s.url || s.site_url || null, query: s.query_text || null, // 采集地址 / 搜索词
+    })),
     policies: docs.map((d) => ({
       name: d.config_key, kind: KIND[d.config_type] || d.config_type, version: `v${d.version}`,
       updated: dt(d.updated_at), by: d.updated_by || '—',
@@ -485,7 +489,7 @@ async function uiDay(date) {
     my.query(`SELECT source_name, status, http_status, error_message FROM source_collection_logs WHERE ${range()} AND status IN ('failed','partial') ORDER BY status LIMIT 12`),
     my.query(`SELECT COUNT(*) c FROM topic_candidates WHERE ${range()}`).then(async (cnt) => ({
       count: cnt[0].c,
-      rows: await my.query(`SELECT id, topic, score, raw_score, content_value_score, priority, status, business_category, topic_cluster, selection_status, selection_skip_reason, source_urls_json FROM topic_candidates WHERE ${range()} ORDER BY score DESC LIMIT 60`),
+      rows: await my.query(`SELECT id, topic, score, raw_score, content_value_score, priority, status, business_category, topic_cluster, selection_status, selection_skip_reason, source_urls_json, created_at FROM topic_candidates WHERE ${range()} ORDER BY score DESC LIMIT 60`),
     })),
     my.query(`SELECT st.entity_id, st.to_status, st.reason, st.created_at, tc.topic, tc.raw_score, tc.content_value_score, tc.selection_score, tc.business_category, tc.topic_cluster, tc.source_urls_json
               FROM status_transitions st LEFT JOIN topic_candidates tc ON tc.id = st.entity_id
@@ -575,6 +579,7 @@ async function uiDay(date) {
         id: t.id, topic: t.topic, score: t.score, value: t.content_value_score, priority: t.priority,
         status: t.status, businessCategory: t.business_category, topicCluster: t.topic_cluster,
         skipReason: t.selection_skip_reason, sources: srcHosts(t.source_urls_json),
+        t: dt(t.created_at), // 生成时刻：区分同日多批次
       })),
       selected: selected.map((d) => ({ topic: d.topic || d.entity_id, raw: d.raw_score, value: d.content_value_score, selection: d.selection_score, businessCategory: d.business_category, t: dt(d.created_at), sources: srcHosts(d.source_urls_json) })),
       deferredCount: deferred.length,
@@ -709,7 +714,15 @@ async function uiCanonicalSources({ lane, status, source, limit = 120 } = {}) {
     sourceName: r.source_name, sourceGroup: r.source_group,
     title: deEnt(r.title).slice(0, 110) || '(无标题)', summary: deEnt(r.summary).slice(0, 160),
   }));
-  return { items, sourceFacet: sourceFacet.filter((f) => f.k).map((f) => ({ name: f.k, count: f.c })) };
+  // 每个来源的素材总数直接数 source_items（canonical 素材表本体）；
+  // source_canonical_items 是去重索引，可能滞后于最新采集，不能当素材计数用
+  const itemFacet = await my.query('SELECT source_name k, COUNT(*) c FROM source_items GROUP BY source_name');
+  return {
+    items,
+    sourceFacet: sourceFacet.filter((f) => f.k).map((f) => ({ name: f.k, count: f.c })),
+    itemCounts: Object.fromEntries(itemFacet.filter((f) => f.k).map((f) => [f.k, f.c])),
+    itemTotal: itemFacet.reduce((a, f) => a + f.c, 0),
+  };
 }
 
 // 观察记录（每日采集真相），按 daily_key / engine_run_id / observation_status 过滤

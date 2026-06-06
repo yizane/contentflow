@@ -150,7 +150,16 @@ function Sources({ toast, counts }) {
             const n = counts ? (counts[s.name] || 0) : null;
             return (
               <tr key={s.id} style={{ opacity: s.enabled ? 1 : .55 }}>
-                <td className="row-title">{s.name}</td>
+                <td>
+                  <div className="row-title">{s.name}</div>
+                  {s.url ? (
+                    <a href={s.url} target="_blank" rel="noreferrer" className="mono" onClick={(e) => e.stopPropagation()}
+                      style={{ display: "block", fontSize: 10.5, color: "var(--ink-4)", textDecoration: "none", marginTop: 2, maxWidth: 420, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                      onMouseEnter={(e) => e.currentTarget.style.color = "var(--brand-600)"} onMouseLeave={(e) => e.currentTarget.style.color = "var(--ink-4)"} title={s.url}>{s.url}</a>
+                  ) : s.query ? (
+                    <div style={{ fontSize: 10.5, color: "var(--ink-4)", marginTop: 2, maxWidth: 420, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={s.query}>搜索词：{s.query}</div>
+                  ) : null}
+                </td>
                 <td><span className="chip" style={{ height: 22, fontSize: 11 }} title={s.group}>{FLY.sourceGroup(s.group)}</span></td>
                 <td className="muted mono" style={{ fontSize: 11 }}>{s.type}</td>
                 {counts && <td className="tnum" style={{ fontWeight: 700, color: n > 0 ? "var(--ink)" : "var(--ink-4)" }}>{n}</td>}
