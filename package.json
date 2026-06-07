@@ -12,6 +12,7 @@
     "db:show": "node scripts/tools/db_show.js",
     "engine:daily": "node scripts/engine_daily.js",
     "engine:batch": "node scripts/engine_batch.js",
+    "engine:graph": "node scripts/graph/engine_graph.mjs",
     "engine:report": "node scripts/engine_report.js",
     "sources:collect": "node scripts/pipeline/sources_collect.js",
     "sources:check": "node scripts/tools/sources_check.js",
@@ -32,13 +33,14 @@
     "review:mark": "node scripts/pipeline/review_mark.js",
     "keywords:analyze": "node scripts/tools/keywords_analyze.js",
     "config:sync": "node scripts/tools/config_sync.js",
-    "viewer": "node scripts/view_server.js",
-    "test": "node --test"
+    "viewer": "node scripts/view_server.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
+    "@langchain/core": "1.1.48",
+    "@langchain/langgraph": "1.3.6",
     "dotenv": "^17.4.2",
     "mysql2": "^3.22.4"
   }
