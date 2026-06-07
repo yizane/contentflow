@@ -194,7 +194,7 @@
     <header>
       <h1>ContentFlow 当前工作流图（Phase 13）</h1>
       <p>本文档只记录当前仓库真实运行的 workflow。运行态数据只进 MySQL；本地文件只保留代码、配置、prompt、schema、迁移和文档。</p>
-      <p><code>engine:daily</code> 负责 daily 幂等和运行控制，实际主链路由 <code>engine_batch.js</code> 串行执行。OpenClaw 只作为模型/智能体执行层；状态、正文、评分、trace、决策解释都以 MySQL 为准。</p>
+      <p><code>engine:daily</code> 负责 daily 幂等和运行控制，当前生产主链路由 <code>engine_batch.js</code> 串行执行；<code>engine_graph.mjs</code> 是并行保留的 LangGraph 实验编排入口。OpenClaw 只作为模型/智能体执行层；状态、正文、评分、trace、决策解释都以 MySQL 为准。</p>
       <p>发布包、人工终审、报告、历史分类回填、选题压力测试是后续人工/运维动作，不属于 daily 主编排的必经步骤。</p>
     </header>
 
@@ -240,15 +240,15 @@
           <text class="title" x="754" y="99">MySQL run control</text>
           <text class="tiny" x="754" y="116">engine_runs / run_actions</text>
           <rect class="box box-cyan" x="972" y="80" width="190" height="44"></rect>
-          <text class="title" x="988" y="99">engine_batch.js</text>
-          <text class="tiny" x="988" y="116">创建 workflow_steps 后串行执行</text>
+          <text class="title" x="988" y="99">engine_batch / graph</text>
+          <text class="tiny" x="988" y="116">生产 batch；实验 LangGraph</text>
           <path class="arrow" d="M228 102 H272"></path>
           <path class="arrow" d="M462 102 H506"></path>
           <path class="arrow" d="M694 102 H738"></path>
           <path class="arrow" d="M928 102 H972"></path>
 
           <rect class="lane" x="24" y="180" width="1192" height="590" rx="16"></rect>
-          <text class="label" x="48" y="208">左：engine_batch 主链路；右：每步对应的 MySQL 结果表</text>
+          <text class="label" x="48" y="208">左：主链路节点；右：每步对应的 MySQL 结果表</text>
           <text class="label" x="72" y="236">主链路</text>
           <text class="label" x="668" y="236">MySQL 写入/读取点</text>
 
@@ -351,6 +351,7 @@
       </div>
       <div class="callout">
         <strong>主链路边界：</strong><code>package:export</code>、<code>review:mark</code>、<code>engine:report</code>、<code>topic:audition</code>、<code>content:classify</code> 都是主链路之外的人工或运维动作。它们仍写 MySQL，但不应被画成 daily 必经步骤。
+        <br><strong>LangGraph 实验入口：</strong><code>engine_graph.mjs</code> 使用 LangGraph 表达补位循环和条件边，但仍复用现有 pipeline step、MySQL trace 和 OpenClaw provider；<code>run_mode</code> 继续表示 start/retry/rebuild/force，runner 标识写在 <code>summary_json.runner</code>。
       </div>
     </section>
 
@@ -433,7 +434,7 @@
 
     <section class="card">
       <h2>3. 节点清单与主从关系</h2>
-      <h3>engine_batch 主链路</h3>
+      <h3>主链路节点</h3>
       <table>
         <thead>
           <tr>

@@ -22,6 +22,16 @@ collect_sources → topic_generation → create_article_jobs → article_generat
 
 trace 写入失败不会中断主流程（计数 + console.warn），engine run summary_json 的 `traceFailures` 字段与 engine_report 会提示。
 
+## LangGraph 实验入口
+
+`npm run engine:graph` 是与 `engine:batch` 并行的实验编排入口。
+
+- 它使用 LangGraph 表达节点和条件分支：采集 → 选题 → 补位循环 → 文章 → 事实核查 → 评分 → 渠道 → 快照。
+- 它继续写入现有 `engine_runs`、`workflow_steps`、`workflow_events`、`model_runs`，Viewer 契约不变。
+- OpenClaw 仍通过 `providers` 抽象调用，生产执行器仍是 `openclaw_cli`。
+- `run_mode` 仍表示 `start` / `retry` / `rebuild` / `force`；runner 标识写在 `engine_runs.summary_json.runner = "langgraph"`。
+- 当前生产入口仍是 `npm run engine:daily` / `npm run engine:batch`。只有在 graph runner 连续小流量验证通过后，才考虑用 `WORKFLOW_RUNNER=graph` 接入 daily。
+
 ## Daily Run Control（Phase 11）
 
 - 每天一个主键 `daily_key = YYYY-MM-DD`，**默认一天只有一个 active daily run**（应用层在 run_control_lib.canStartDaily 控制；未加 DB 唯一约束——is_active 为 TINYINT，唯一约束会阻止多条历史 inactive 记录）。
