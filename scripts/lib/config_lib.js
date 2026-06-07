@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const my = require('./mysql_lib');
+const sourceLanes = require('./source_lanes_lib');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 
@@ -72,17 +73,19 @@ async function ensureInit() {
   try {
     const rows = await my.query('SELECT * FROM config_sources WHERE enabled = 1');
     cache.sources = rows.map((r) => ({
+      ...sourceLanes.parseExtraJson(r.extra_json),
       group: r.group_name, name: r.name, type: r.type, category: r.category, priority: r.priority,
       url: r.url || undefined, site_url: r.site_url || undefined, language: r.language || undefined,
       requires_auth: r.requires_auth ? 'true' : 'false', freshness: r.freshness || undefined,
       query: r.query_text || undefined, notes: r.notes || undefined,
+      enabled: r.enabled ? 'true' : 'false',
     }));
   } catch (_) { /* ignore */ }
   if (cache.sources.length === 0) {
     // 文件回退：用 sources_lib 的 YAML 解析
     const { allSourceItems } = require('./sources_lib');
     try {
-      cache.sources = allSourceItems();
+      cache.sources = allSourceItems().filter((s) => sourceLanes.isSourceEnabled(s));
       cache.fallbacks.push('config_sources');
     } catch (_) { /* ignore */ }
   }

@@ -31,7 +31,7 @@ scripts/
 5. **分类体系**：source_group（来源）≠ content_type/business_category/topic_cluster（内容三层分类，config/content_taxonomy.yaml）。
 6. 不自动生成图片、不把二进制放数据库；视觉规划只存说明、图注、替代文本、生图提示等规划信息。
 7. 不接 Strapi/Cron、不调用 Flyfus MCP、不真实发布文章。
-8. migration 编号顺延（已到 010），用 `npm run db:migrate` 执行（schema_migrations 追踪）。
+8. migration 编号顺延（已到 011），用 `npm run db:migrate` 执行（schema_migrations 追踪）。
 9. 配置改动（config/ prompts/ schemas/）后运行 `npm run config:sync` 入库才生效。
 
 ## 常用命令
@@ -56,22 +56,17 @@ npm run engine:report                                # 含 qualityOverview / por
 6. `--strategies` 同题多策略并行生成（jobs_create 里 P2 TODO）。
 7. providers/openclaw_gateway 协议确定后实现；codex_cli/claude_cli 执行器标实验性待验证。
 8. deferred 候选到期回池后的自动复检节奏（目前依赖下次 jobs:create 触发）。
-9. **主题→数据源 ID 关联未落库**：`topic_candidates.source_item_ids_json` 全部是 `[]`（109/109），
-   只有 `source_urls_json` 有值。topics_generate 时应把候选引用的 source_items 主键写进
-   source_item_ids_json，Viewer 才能从主题直接钻取到具体数据源条目（URL 串无法 join）。
-10. **新闻快讯断层**：source_items 里 news_flash 有 50 条，但 topic_candidates 里 news_flash≈0、
+9. **新闻快讯断层**：source_items 里 news_flash 有 50 条，但 topic_candidates 里 news_flash≈0、
    articles 里为 0——新闻类资讯采进来了却几乎不产出主题。确认是 topic_generator prompt 偏好
    还是选题打分压制，属于结构性偏置（参照 12B 的主动报告要求）。
-11. **canonical 索引/观察记录未接进采集链路**（06-06 实测）：source_canonical_items 只有
-   03:45 的一次性回填；之后采集的 122 条新素材进了 source_items 但索引/lane 没建，
-   source_observations 仍是 0 行。需要 sources_collect 在采集时同步写
-   source_canonical_items（lane 判定）+ source_observations（新源/重复/复活判定），
-   否则 Viewer 数据源页的素材库/观察记录/三线统计都只反映回填快照。
-12. **选题来源线索的引用纪律**：topic_generator 输出的 sourceUrls 有时挂弱相关引用
+10. **选题来源线索的引用纪律**：topic_generator 输出的 sourceUrls 有时挂弱相关引用
    （例：广告结构主题挂 teikametrics+searchengineland+跨境媒体三个不相干 URL）。
    prompt 应要求 sourceUrls 仅引用「直接支撑该主题事实」的输入素材，宁缺勿滥——
    Viewer 已按主题展示来源 chips，弱引用会被用户直接看到。
-13. **选题只基于标题+150字摘要，素材正文从未入库**（06-07 实测）：source_items.content_text
+11. **来源业务分类与候选业务分类一致性**：当前已拦非亚马逊电商来源，但还需避免用“类目热销榜”
+   支撑 PPC/广告结构等弱相关选题；应在 topic_generation 后增加 source-category 对 candidate-category
+   的二级守门。
+12. **选题只基于标题+150字摘要，素材正文从未入库**（06-07 实测）：source_items.content_text
    全库 0 条有内容；topicGenerationPrompt 每条素材只给 标题+url+summary 前 150 字+分类。
    后果：a) 选题分实质是「标题潜力分」，高分题正文撑不起来（90+ 题 → 主评分 76 的案例）；
    b) 引用纪律松（AI 没读过内容只能按标题猜相关）。评估：采集存正文或加长摘要、

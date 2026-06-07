@@ -4,6 +4,7 @@ const my = require('./mysql_lib');
 
 let traceFailures = 0;
 const traceFailureSamples = [];
+const stepStartedWallMs = new Map();
 
 async function safe(fn, label) {
   try {
@@ -31,6 +32,7 @@ function clip(obj, max = 2000) {
 async function createWorkflowStep({ engineRunId, stepKey, stepName, stepOrder, inputSummary }) {
   const id = my.makeId('step');
   const now = my.now();
+  stepStartedWallMs.set(id, Date.now());
   await safe(() => my.insert('workflow_steps', {
     id, engine_run_id: engineRunId || null, step_key: stepKey, step_name: stepName || stepKey,
     step_order: stepOrder ?? null, status: 'pending', started_at: now,
@@ -42,18 +44,22 @@ async function createWorkflowStep({ engineRunId, stepKey, stepName, stepOrder, i
 async function startWorkflowStep(stepId) {
   if (!stepId) return;
   const now = my.now();
+  stepStartedWallMs.set(stepId, Date.now());
   await safe(() => my.update('workflow_steps', { status: 'running', started_at: now, updated_at: now }, 'id = ?', [stepId]), 'startWorkflowStep');
 }
 
 async function finishWorkflowStep(stepId, { status, outputSummary, warnings, errorMessage } = {}) {
   if (!stepId) return;
   await safe(async () => {
-    // duration 由 MySQL 端同口径计算（started_at 与 finished_at 同为 my.now() 约定，避免时区混入）
     const finished = my.now();
+    const wallStarted = stepStartedWallMs.get(stepId);
+    const durationMs = wallStarted ? Math.max(0, Date.now() - wallStarted) : null;
+    stepStartedWallMs.delete(stepId);
     await my.query(
-      `UPDATE workflow_steps SET status = ?, finished_at = ?, duration_ms = TIMESTAMPDIFF(MICROSECOND, started_at, ?) DIV 1000,
+      `UPDATE workflow_steps SET status = ?, finished_at = ?,
+        duration_ms = COALESCE(?, TIMESTAMPDIFF(MICROSECOND, started_at, ?) DIV 1000),
         output_summary_json = ?, warning_json = ?, error_message = ?, updated_at = ? WHERE id = ?`,
-      [status || 'success', finished, finished,
+      [status || 'success', finished, durationMs, finished,
         outputSummary !== undefined && outputSummary !== null ? JSON.stringify(clip(outputSummary)) : null,
         warnings !== undefined && warnings !== null ? JSON.stringify(clip(warnings)) : null,
         errorMessage ? String(errorMessage).slice(0, 900) : null, finished, stepId]

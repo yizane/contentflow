@@ -1,9 +1,11 @@
 // collect_http_lib.js — HTTP 类源采集（rss/atom/fetch_page/discover），纯内存返回，不写文件不写库
 const config = require('./config_lib');
+const runtime = require('./workflow_runtime_lib');
 
 const FETCH_TIMEOUT = 12000;
 const MAX_ITEMS_PER_FEED = 8;
 const MAX_LINKS_PER_PAGE = 8;
+const AMZ123_KX_API = 'https://api.amz123.com/ugc/v1/user_content/kx_list';
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) flyfus-content-agent/0.3 source-collector';
 
 function decodeEntities(s) {
@@ -15,6 +17,14 @@ function decodeEntities(s) {
     .replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 }
 
+function absoluteUrl(href, baseUrl) {
+  try {
+    return new URL(href, baseUrl).toString();
+  } catch (_) {
+    return '';
+  }
+}
+
 async function fetchText(url) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
@@ -22,6 +32,29 @@ async function fetchText(url) {
     const res = await fetch(url, { signal: controller.signal, headers: { 'User-Agent': UA, Accept: '*/*' }, redirect: 'follow' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return (await res.text()).slice(0, 1_500_000);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchJson(url, { method = 'GET', headers = {}, body = null } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+  try {
+    const res = await fetch(url, {
+      method,
+      signal: controller.signal,
+      headers: { 'User-Agent': UA, Accept: 'application/json', ...headers },
+      redirect: 'follow',
+      body,
+    });
+    const text = await res.text();
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    try {
+      return JSON.parse(text);
+    } catch (_) {
+      throw new Error('invalid JSON response');
+    }
   } finally {
     clearTimeout(timer);
   }
@@ -52,13 +85,134 @@ function parseFeed(xml, source) {
       title, url: link, publishedAt: pick(['pubDate', 'published', 'updated', 'dc:date']),
       summary: pick(['description', 'summary', 'content']).slice(0, 400),
       sourceName: source.name, sourceGroup: source.group, sourceCategory: source.category,
+      sourceLane: source.lane, sourcePriority: source.priority, sourceFreshness: source.freshness,
       itemType: isAtom ? 'atom' : 'rss',
     });
   }
   return items;
 }
 
+function dailyKeyForShanghai() {
+  if (process.env.ENGINE_DAILY_KEY) return process.env.ENGINE_DAILY_KEY;
+  const d = runtime.engineNowDate(process.env.ENGINE_NOW);
+  return new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d);
+}
+
+function shanghaiDayWindow(dailyKey) {
+  return {
+    start: Math.floor(new Date(`${dailyKey}T00:00:00+08:00`).getTime() / 1000),
+    end: Math.floor(new Date(`${dailyKey}T23:59:59+08:00`).getTime() / 1000),
+  };
+}
+
+function shanghaiDateTimeFromEpoch(seconds) {
+  if (!seconds) return '';
+  return new Date(seconds * 1000).toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' });
+}
+
+function flattenAmzKxRows(data) {
+  const rowMap = data && data.row_map ? data.row_map : {};
+  const out = [];
+  for (const value of Object.values(rowMap)) {
+    const rows = Array.isArray(value) ? value : [value];
+    for (const row of rows) {
+      for (const item of row.kx_content || []) out.push(item);
+    }
+  }
+  return out;
+}
+
+async function collectAmzKxApi(source) {
+  const dailyKey = dailyKeyForShanghai();
+  const window = shanghaiDayWindow(dailyKey);
+  const body = {
+    is_important: -1,
+    category_id: 0,
+    start_time: window.start,
+    end_time: window.end,
+    keyword: '',
+    is_query_zb: 0,
+    is_query_total_count: 1,
+  };
+  const json = await fetchJson(AMZ123_KX_API, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'app-id': '3',
+      'project-id': 'ugc',
+      Origin: 'https://www.amz123.com',
+      Referer: 'https://www.amz123.com/',
+    },
+    body: JSON.stringify(body),
+  });
+  if (json.status !== 0) throw new Error(`AMZ123 kx API status ${json.status}: ${json.info || json.message || 'unknown'}`);
+  const seen = new Set();
+  const items = [];
+  for (const row of flattenAmzKxRows(json.data)) {
+    const id = row.id || String(row.resource_id || '');
+    const url = id ? `https://www.amz123.com/kx/${id}` : '';
+    const title = decodeEntities(row.title || '');
+    if (!id || !url || !title || seen.has(url)) continue;
+    seen.add(url);
+    items.push({
+      title,
+      url,
+      publishedAt: shanghaiDateTimeFromEpoch(row.published_at),
+      summary: decodeEntities(row.description || row.content || '').slice(0, 800),
+      sourceName: source.name,
+      sourceGroup: source.group,
+      sourceCategory: source.category,
+      sourceLane: source.lane,
+      sourcePriority: source.priority,
+      sourceFreshness: source.freshness,
+      itemType: 'fetch_page',
+      rawJson: { crawler: 'amz123_kx_api', dailyKey, endpoint: AMZ123_KX_API, apiItem: row },
+    });
+  }
+  return items;
+}
+
+function parseAmzKxPage(html, source) {
+  if (!/https?:\/\/(?:www\.)?amz123\.com\/kx\b/i.test(source.url || '')) return [];
+  const items = [];
+  const seen = new Set();
+  const itemRe = /<div\b[^>]*class=["'][^"']*\bkx-item\b(?!-)[^"']*["'][^>]*>([\s\S]*?)(?=<div\b[^>]*class=["'][^"']*\bkx-item\b(?!-)|$)/gi;
+  let m;
+  while ((m = itemRe.exec(html)) && items.length < MAX_LINKS_PER_PAGE) {
+    const block = m[1];
+    const titleM = block.match(/<a\b(?=[^>]*class=["'][^"']*\bkx-item-title\b)[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i);
+    if (!titleM) continue;
+    const title = decodeEntities(titleM[2]);
+    const url = absoluteUrl(titleM[1], source.url);
+    if (!title || !url || seen.has(url)) continue;
+    const summaryM = block.match(/<div\b(?=[^>]*class=["'][^"']*\bkx-item-description\b)[^>]*>([\s\S]*?)<\/div>/i);
+    const timeM = block.match(/<div\b(?=[^>]*class=["'][^"']*\bkx-item-time\b)[^>]*>([\s\S]*?)<\/div>/i);
+    seen.add(url);
+    items.push({
+      title, url,
+      publishedAt: timeM ? decodeEntities(timeM[1]) : '',
+      summary: summaryM ? decodeEntities(summaryM[1]).slice(0, 400) : '',
+      sourceName: source.name, sourceGroup: source.group, sourceCategory: source.category,
+      sourceLane: source.lane, sourcePriority: source.priority, sourceFreshness: source.freshness,
+      itemType: 'fetch_page',
+    });
+  }
+  return items;
+}
+
+function isAmzKxSource(source) {
+  return /https?:\/\/(?:www\.)?amz123\.com\/kx\b/i.test(source.url || '');
+}
+
 function parsePage(html, source) {
+  const structuredItems = parseAmzKxPage(html, source);
+  if (structuredItems.length > 0) return structuredItems;
+
   const items = [];
   const titleM = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const pageTitle = titleM ? decodeEntities(titleM[1]) : source.name;
@@ -71,14 +225,15 @@ function parsePage(html, source) {
     let href = m[1];
     const text = decodeEntities(m[2]);
     if (!text || text.length < 12 || text.length > 160) continue;
-    try { href = new URL(href, source.url).toString(); } catch (_) { continue; }
+    href = absoluteUrl(href, source.url);
+    if (!href) continue;
     if (origin && !href.startsWith(origin)) continue;
     if (seen.has(href)) continue;
     seen.add(href);
-    items.push({ title: text, url: href, publishedAt: '', summary: '', sourceName: source.name, sourceGroup: source.group, sourceCategory: source.category, itemType: 'fetch_page' });
+    items.push({ title: text, url: href, publishedAt: '', summary: '', sourceName: source.name, sourceGroup: source.group, sourceCategory: source.category, sourceLane: source.lane, sourcePriority: source.priority, sourceFreshness: source.freshness, itemType: 'fetch_page' });
   }
   if (items.length === 0) {
-    items.push({ title: pageTitle, url: source.url, publishedAt: '', summary: '(page-level item)', sourceName: source.name, sourceGroup: source.group, sourceCategory: source.category, itemType: 'fetch_page' });
+    items.push({ title: pageTitle, url: source.url, publishedAt: '', summary: '(page-level item)', sourceName: source.name, sourceGroup: source.group, sourceCategory: source.category, sourceLane: source.lane, sourcePriority: source.priority, sourceFreshness: source.freshness, itemType: 'fetch_page' });
   }
   return items;
 }
@@ -112,8 +267,17 @@ async function collectHttpSources() {
           summary.fetchPage += got.length;
         }
       } else if (s.type === 'fetch_page') {
-        const html = await fetchText(s.url);
-        got = parsePage(html, s);
+        if (isAmzKxSource(s)) {
+          try {
+            got = await collectAmzKxApi(s);
+          } catch (_) {
+            const html = await fetchText(s.url);
+            got = parsePage(html, s);
+          }
+        } else {
+          const html = await fetchText(s.url);
+          got = parsePage(html, s);
+        }
         summary.fetchPage += got.length;
       }
       items.push(...got);

@@ -14,6 +14,14 @@ function parseArgs(argv) {
   return args;
 }
 
+async function safeQuery(sql, params = [], fallback = []) {
+  try {
+    return await my.query(sql, params);
+  } catch (_) {
+    return fallback;
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv);
   try {
@@ -100,6 +108,88 @@ async function main() {
     // trace 健康度：最近 24h 的 trace 事件量 + 最近 run 是否有 trace 缺失迹象
     const traceHealth = (await my.query("SELECT (SELECT COUNT(*) FROM workflow_steps WHERE created_at >= DATE_SUB(NOW(3), INTERVAL 1 DAY)) steps, (SELECT COUNT(*) FROM workflow_events WHERE created_at >= DATE_SUB(NOW(3), INTERVAL 1 DAY)) events, (SELECT COUNT(*) FROM workflow_events WHERE level='error' AND created_at >= DATE_SUB(NOW(3), INTERVAL 1 DAY)) errorEvents"))[0];
 
+    const observationRows = await safeQuery(`
+      SELECT observation_status k, COUNT(*) c
+      FROM source_observations
+      ${args.runId ? 'WHERE engine_run_id = ?' : ''}
+      GROUP BY observation_status
+    `, args.runId ? [args.runId] : []);
+    const topicSignalRows = await safeQuery(`
+      SELECT status k, COUNT(*) c
+      FROM topic_signals
+      ${args.runId ? 'WHERE engine_run_id = ?' : ''}
+      GROUP BY status
+    `, args.runId ? [args.runId] : []);
+    const topicDedupeRows = await safeQuery(`
+      SELECT decision k, COUNT(*) c
+      FROM topic_dedupe_records
+      ${args.runId ? 'WHERE engine_run_id = ?' : ''}
+      GROUP BY decision
+    `, args.runId ? [args.runId] : []);
+    const laneObservationRows = await safeQuery(`
+      SELECT source_lane k, COUNT(*) c
+      FROM source_observations
+      ${args.runId ? 'WHERE engine_run_id = ?' : ''}
+      GROUP BY source_lane
+    `, args.runId ? [args.runId] : []);
+    const laneRows = await safeQuery(`
+      SELECT lane,
+             COUNT(*) total,
+             SUM(usage_status = 'unused') unused,
+             SUM(usage_status = 'used') used,
+             SUM(usage_status = 'expired_soft') softExpired,
+             SUM(first_seen_at >= DATE_SUB(NOW(3), INTERVAL 72 HOUR)) fresh72h,
+             SUM(first_seen_at >= DATE_SUB(NOW(3), INTERVAL 168 HOUR) OR reactivated_at >= DATE_SUB(NOW(3), INTERVAL 168 HOUR)) fresh7d,
+             SUM(reactivated_at >= DATE_SUB(NOW(3), INTERVAL 168 HOUR)) reactivated,
+             MAX(times_in_prompt) maxTimesInPrompt,
+             MAX(TIMESTAMPDIFF(DAY, first_seen_at, NOW(3))) oldestDays
+      FROM source_canonical_items
+      GROUP BY lane
+    `);
+    const inPromptTodayRows = await safeQuery(`
+      SELECT lane, COUNT(*) c
+      FROM source_canonical_items
+      WHERE times_in_prompt > 0 AND updated_at >= CURDATE()
+      GROUP BY lane
+    `);
+    const observationCounts = cnt(observationRows);
+    const topicSignalsByStatus = cnt(topicSignalRows);
+    const topicDedupeByDecision = cnt(topicDedupeRows);
+    const observationsByLane = cnt(laneObservationRows);
+    const inPromptToday = cnt(inPromptTodayRows);
+    const sourceObservationCoverage = {
+      observations: Object.values(observationCounts).reduce((s, n) => s + n, 0),
+      newSources: observationCounts.new_source || 0,
+      seenSources: observationCounts.seen_source || 0,
+      reactivatedSources: observationCounts.reactivated_source || 0,
+      ignored: observationCounts.ignored || 0,
+      canonicalSourcesSeen: (await safeQuery('SELECT COUNT(*) c FROM source_canonical_items', [], [{ c: 0 }]))[0].c,
+      topicSignalsByStatus,
+      topicDedupeByDecision,
+    };
+    const laneByName = Object.fromEntries(laneRows.map((r) => [r.lane, r]));
+    const sourceLanes = {
+      news: {
+        collected: observationsByLane.news || 0,
+        fresh72h: laneByName.news ? Number(laneByName.news.fresh72h || 0) : 0,
+        inPrompt: inPromptToday.news || 0,
+      },
+      policy: {
+        collected: observationsByLane.policy || 0,
+        fresh7d: laneByName.policy ? Number(laneByName.policy.fresh7d || 0) : 0,
+        inPrompt: inPromptToday.policy || 0,
+        reactivated: laneByName.policy ? Number(laneByName.policy.reactivated || 0) : 0,
+      },
+      knowledge: {
+        total: laneByName.knowledge ? laneByName.knowledge.total : 0,
+        unused: laneByName.knowledge ? Number(laneByName.knowledge.unused || 0) : 0,
+        used: laneByName.knowledge ? Number(laneByName.knowledge.used || 0) : 0,
+        softExpired: laneByName.knowledge ? Number(laneByName.knowledge.softExpired || 0) : 0,
+        inPromptToday: inPromptToday.knowledge || 0,
+        oldestUnusedDays: laneByName.knowledge ? laneByName.knowledge.oldestDays : null,
+      },
+    };
+
     const nextActions = [];
     if (engineRuns[0] && my.asJson(engineRuns[0].summary_json) && my.asJson(engineRuns[0].summary_json).traceFailures > 0) {
       nextActions.push(`⚠️ 最近一次 engine run 有 ${my.asJson(engineRuns[0].summary_json).traceFailures} 次 trace 写入失败，检查 workflow_* 表`);
@@ -118,6 +208,7 @@ async function main() {
       seoGeoSummary, failedModelRuns, traceHealth,
       contentTypeCounts, businessCategoryCounts, topicClusterCounts, taxonomySummary,
       portfolioHealth, qualityOverview,
+      sourceObservationCoverage, sourceLanes,
       deferredToday: deferredToday.map((d) => ({ topic: d.topic.slice(0, 60), rawScore: d.raw_score, selectionScore: d.selection_score, reason: d.selection_skip_reason, deferredUntil: String(d.deferred_until || '').slice(0, 10) })),
       packages: packages.map((p) => ({ slug: p.slug, status: p.status, ready: !!p.ready_for_publish_package })),
       nextActions,
@@ -177,6 +268,14 @@ ${portfolioHealth && portfolioHealth.keywordDistributionWarnings && portfolioHea
 
 ${portfolioHealth && portfolioHealth.recommendations && portfolioHealth.recommendations.length ? '**建议**：\n' + portfolioHealth.recommendations.map((r) => `- ${r}`).join('\n') : ''}
 
+## 数据源观察与去重
+
+**Observation**: 新源 ${sourceObservationCoverage.newSources} / 重复观察 ${sourceObservationCoverage.seenSources} / reactivated ${sourceObservationCoverage.reactivatedSources} / ignored ${sourceObservationCoverage.ignored}
+
+**Topic dedupe**: ${Object.entries(sourceObservationCoverage.topicDedupeByDecision).map(([k, c]) => `${k} ${c}`).join(' · ') || '无'}
+
+**Source lanes**: news fresh72h ${sourceLanes.news.fresh72h} / policy fresh7d ${sourceLanes.policy.fresh7d} / knowledge unused ${sourceLanes.knowledge.unused} used ${sourceLanes.knowledge.used}
+
 ## 渠道覆盖
 
 ${reviewables.length} 篇可终审，${completeChannelSet} 篇渠道齐全
@@ -193,7 +292,7 @@ ${nextActions.map((a, i) => `${i + 1}. ${a}`).join('\n')}
     const id = my.makeId('report');
     await my.insert('engine_reports', { id, engine_run_id: args.runId || null, report_json: report, report_markdown: md, created_at: my.now() });
 
-    console.log(JSON.stringify({ ok: true, reportId: id, storedIn: 'engine_reports (MySQL)', statusCounts, qualityOverview, contentTypeCounts, businessCategoryCounts, topicClusterCounts, portfolioHealth, readyForReview: readyForReview.length, needsFactSources: needsFactSources.length, channelCoverage: report.channelCoverage, seoGeoSummary: { avgSeo: seoGeoSummary.avgSeoScore, avgGeo: seoGeoSummary.avgGeoScore, scored: seoGeoSummary.scoredArticles }, nextActions }, null, 2));
+    console.log(JSON.stringify({ ok: true, reportId: id, storedIn: 'engine_reports (MySQL)', statusCounts, qualityOverview, sourceObservationCoverage, sourceLanes, contentTypeCounts, businessCategoryCounts, topicClusterCounts, portfolioHealth, readyForReview: readyForReview.length, needsFactSources: needsFactSources.length, channelCoverage: report.channelCoverage, seoGeoSummary: { avgSeo: seoGeoSummary.avgSeoScore, avgGeo: seoGeoSummary.avgGeoScore, scored: seoGeoSummary.scoredArticles }, nextActions }, null, 2));
   } catch (err) {
     console.log(JSON.stringify({ ok: false, error: err.message }, null, 2));
     process.exitCode = 1;

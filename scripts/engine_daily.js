@@ -12,29 +12,40 @@ const { execFileSync } = require('child_process');
 const my = require('./lib/mysql_lib');
 const rc = require('./lib/run_control_lib');
 const logger = require('./lib/logger_lib');
+const runtime = require('./lib/workflow_runtime_lib');
 
 const ROOT = my.ROOT;
 const MODE_ACTION = { start: 'start_daily', retry: 'retry_daily', rebuild: 'rebuild_daily', force: 'force_daily' };
 
-function parseArgs(argv) {
-  const args = { mode: 'start', dailyKey: rc.getDailyKey(), actor: 'cli', triggerSource: 'cli', planOnly: false, makeActive: false, extra: [] };
-  for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === '--mode') args.mode = argv[++i];
-    else if (argv[i] === '--daily-key') args.dailyKey = argv[++i];
-    else if (argv[i] === '--actor') args.actor = argv[++i];
-    else if (argv[i] === '--trigger-source') args.triggerSource = argv[++i];
-    else if (argv[i] === '--plan-only' || argv[i] === '--dry-run') args.planOnly = true;
-    else if (argv[i] === '--make-active') args.makeActive = true;
-    else args.extra.push(argv[i]); // 透传给 engine_batch（如 --strategy）
-  }
-  return args;
-}
-
 async function main() {
-  const args = parseArgs(process.argv);
+  const args = runtime.parseDailyArgs(process.argv, { defaultDailyKey: rc.getDailyKey() });
+  if (args.engineNow) process.env.ENGINE_NOW = args.engineNow;
   if (!MODE_ACTION[args.mode]) {
     console.log(JSON.stringify({ ok: false, error: `mode 非法: ${args.mode}（允许: start/retry/rebuild/force）` }, null, 2));
     process.exit(1);
+  }
+  if (args.dryRun) {
+    const dryRunId = my.makeRunId('engine');
+    const dryRunIsActive = args.mode === 'force' ? (args.makeActive ? 1 : 0) : 1;
+    const invocation = runtime.buildDailyBatchInvocation({
+      args,
+      runId: dryRunId,
+      isActive: dryRunIsActive,
+      scriptPath: path.join(ROOT, 'scripts', 'engine_batch.js'),
+    });
+    console.log(JSON.stringify({
+      ok: true,
+      dryRun: true,
+      dailyKey: args.dailyKey,
+      mode: args.mode,
+      engineNow: args.engineNow,
+      targetReady: args.targetReady,
+      maxAttempts: args.maxAttempts,
+      batchArgv: invocation.argv.slice(1),
+      message: 'dry-run：未评估 run_control，未写 run_actions，未执行 batch',
+    }, null, 2));
+    await my.closePool();
+    return;
   }
 
   const decision = await rc.canStartDaily({ dailyKey: args.dailyKey, mode: args.mode });
@@ -43,7 +54,7 @@ async function main() {
   if (args.planOnly) {
     await rc.recordRunAction({
       dailyKey: args.dailyKey, action: MODE_ACTION[args.mode], actor: args.actor, triggerSource: args.triggerSource,
-      request: { mode: args.mode, planOnly: true }, result: { allowed: decision.allowed, reason: decision.reason },
+      request: { mode: args.mode, planOnly: true, asOfDate: args.asOfDate, targetReady: args.targetReady, maxAttempts: args.maxAttempts }, result: { allowed: decision.allowed, reason: decision.reason },
       status: decision.allowed ? 'accepted' : 'rejected', errorMessage: decision.allowed ? null : decision.reason,
     });
     console.log(JSON.stringify({ ok: true, planOnly: true, dailyKey: args.dailyKey, mode: args.mode, allowed: decision.allowed, reason: decision.reason, activeRun: decision.activeRun ? { id: decision.activeRun.id, status: decision.activeRun.status } : null, availableActions: decision.availableActions }, null, 2));
@@ -66,7 +77,9 @@ async function main() {
   const newRunId = my.makeRunId('engine');
   const actionId = await rc.recordRunAction({
     engineRunId: newRunId, dailyKey: args.dailyKey, action: MODE_ACTION[args.mode],
-    actor: args.actor, triggerSource: args.triggerSource, request: { mode: args.mode, extra: args.extra }, status: 'running',
+    actor: args.actor, triggerSource: args.triggerSource,
+    request: { mode: args.mode, extra: args.extra, asOfDate: args.asOfDate, targetReady: args.targetReady, maxAttempts: args.maxAttempts },
+    status: 'running',
   });
 
   // 旧 active run 处理
@@ -92,15 +105,13 @@ async function main() {
   // 执行 engine_batch（传 run 控制参数）
   let exitCode = 0;
   try {
-    execFileSync('node', [
-      path.join(ROOT, 'scripts', 'engine_batch.js'),
-      '--limit', '1', '--min-score', '80', '--run-type', 'daily',
-      '--run-id', newRunId, '--daily-key', args.dailyKey, '--run-scope', 'daily',
-      '--run-mode', args.mode, '--triggered-by', args.actor, '--trigger-source', args.triggerSource,
-      '--is-active', String(isActive),
-      ...(args.mode === 'retry' ? ['--retry'] : []),
-      ...args.extra,
-    ], { stdio: 'inherit', timeout: 60 * 60 * 1000 });
+    const invocation = runtime.buildDailyBatchInvocation({
+      args,
+      runId: newRunId,
+      isActive,
+      scriptPath: path.join(ROOT, 'scripts', 'engine_batch.js'),
+    });
+    execFileSync(invocation.argv[0], invocation.argv.slice(1), { stdio: 'inherit', timeout: 60 * 60 * 1000, env: invocation.env });
   } catch (err) {
     exitCode = err.status || 1;
   }

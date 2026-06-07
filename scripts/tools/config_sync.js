@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const my = require('../lib/mysql_lib');
 const { loadSources } = require('../lib/sources_lib');
+const { boolValue } = require('../lib/source_lanes_lib');
 
 const ROOT = my.ROOT;
 const force = process.argv.includes('--force');
@@ -75,11 +76,17 @@ async function main() {
         url: s.url || null, site_url: s.site_url || null, language: s.language || null,
         requires_auth: s.requires_auth === 'true' ? 1 : 0, freshness: s.freshness || null,
         query_text: s.query || null, notes: s.notes || null,
+        extra_json: {
+          lane: s.lane || null,
+          daily_query_enabled: s.daily_query_enabled === undefined ? null : boolValue(s.daily_query_enabled, true),
+        },
+        enabled: boolValue(s.enabled, true) ? 1 : 0,
       };
       const ex = (await my.query('SELECT * FROM config_sources WHERE name = ?', [s.name]))[0];
       if (ex) {
         const changed = Object.entries(fields).some(([k, v]) => {
           const dbv = ex[k];
+          if (k === 'extra_json') return JSON.stringify(my.asJson(dbv) || {}) !== JSON.stringify(v);
           return String(dbv ?? '') !== String(v ?? '');
         });
         if (changed) {

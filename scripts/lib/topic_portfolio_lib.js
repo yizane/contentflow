@@ -6,8 +6,10 @@
 const path = require('path');
 const fs = require('fs');
 const my = require('./mysql_lib');
-const { jaccard } = require('./production_policy_lib');
+const { loadPolicy } = require('./production_policy_lib');
+const { decideTopicDedupe, findMostSimilar, topicDedupePolicy } = require('./topic_dedupe_lib');
 const trace = require('./trace_lib');
+const runtime = require('./workflow_runtime_lib');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 
@@ -63,7 +65,7 @@ function loadContentPortfolioPolicy() {
 // ---------- 组合统计 ----------
 function dtStr(ms) { return new Date(ms).toISOString().slice(0, 23).replace('T', ' '); }
 
-async function calculateTopicPortfolioStats({ now = Date.now() } = {}) {
+async function calculateTopicPortfolioStats({ now = runtime.engineNowDate(process.env.ENGINE_NOW).getTime() } = {}) {
   const since = (d) => dtStr(now - d * 86400000);
   const cnt = (rows) => {
     const m = {};
@@ -154,23 +156,25 @@ function calculateSelectionScore(candidate, stats, policy) {
     }
   }
 
-  // 4) 相似度（标题 + normalized_topic 双通道；>=0.55 硬拦，>=0.35 扣分）
-  let maxTitleSim = 0;
-  for (const t of stats.recentTitles) maxTitleSim = Math.max(maxTitleSim, jaccard(candidate.topic, t));
-  let maxTopicSim = 0;
-  const normSelf = candidate.normalized_topic || (candidate.topic || '').replace(/\s+/g, '');
-  for (const t of stats.recentTopics) {
-    maxTopicSim = Math.max(maxTopicSim, jaccard(normSelf, t.normalized || t.topic), jaccard(candidate.topic, t.topic));
-  }
-  if (maxTitleSim >= 0.35) {
+  // 4) 相似度：决策委托 topic_dedupe_lib，portfolio 只消费结果并保留 deferred 语义
+  const productionPolicy = loadPolicy();
+  const td = topicDedupePolicy(productionPolicy);
+  const recentForDedupe = [
+    ...stats.recentTitles.map((title) => ({ topic: title })),
+    ...stats.recentTopics.map((t) => ({ topic: t.topic, normalized_topic: t.normalized })),
+  ];
+  const similarityDecision = decideTopicDedupe(candidate, recentForDedupe, productionPolicy, { ignoreKeywordThrottle: true });
+  const maxTitleSim = findMostSimilar(candidate, stats.recentTitles.map((title) => ({ topic: title }))).similarity;
+  const maxTopicSim = findMostSimilar(candidate, stats.recentTopics.map((t) => ({ topic: t.topic, normalized_topic: t.normalized }))).similarity;
+  if (maxTitleSim >= td.penalty_similarity_threshold) {
     penalties.push({ type: 'similar_title', value: -(pen.similar_title || 25), reason: `与近 30 天文章标题最高相似度 ${maxTitleSim.toFixed(2)}` });
   }
-  if (maxTopicSim >= 0.35) {
+  if (maxTopicSim >= td.penalty_similarity_threshold) {
     penalties.push({ type: 'similar_normalized_topic', value: -(pen.similar_normalized_topic || 30), reason: `与近 30 天已选/已生成选题最高相似度 ${maxTopicSim.toFixed(2)}` });
   }
-  if (selectionStatus === 'eligible' && (maxTitleSim >= 0.55 || maxTopicSim >= 0.55)) {
+  if (selectionStatus === 'eligible' && ['shadow_duplicate', 'deferred_duplicate'].includes(similarityDecision.decision)) {
     selectionStatus = 'skipped_duplicate';
-    skipReason = `语义重复（title ${maxTitleSim.toFixed(2)} / topic ${maxTopicSim.toFixed(2)} ≥ 0.55）`;
+    skipReason = `语义重复（title ${maxTitleSim.toFixed(2)} / topic ${maxTopicSim.toFixed(2)}，${similarityDecision.reason}）`;
   }
 
   // 5) 组合奖励
@@ -268,7 +272,12 @@ async function selectTopicCandidates({ limit = 1, minScore = 80, category = null
 
   let sql = `SELECT * FROM topic_candidates
     WHERE (status IN ('candidate', 'selected') OR (status = 'deferred' AND deferred_until IS NOT NULL AND deferred_until <= ?))
-      AND score >= ?`;
+      AND score >= ?
+      AND NOT EXISTS (
+        SELECT 1 FROM article_jobs aj
+        WHERE aj.topic_candidate_id = topic_candidates.id
+          AND aj.status IN ('pending', 'running', 'generated')
+      )`;
   const params = [nowStr, minScore];
   if (category) { sql += ' AND category = ?'; params.push(category); }
   sql += ' ORDER BY score DESC, created_at DESC LIMIT 80';
@@ -366,7 +375,7 @@ async function getPortfolioHealthReport() {
   }
 
   const selCounts = Object.fromEntries((await my.query('SELECT selection_status k, COUNT(*) c FROM topic_candidates WHERE selection_status IS NOT NULL GROUP BY selection_status')).map((r) => [r.k, r.c]));
-  const deferredActive = (await my.query("SELECT COUNT(*) c FROM topic_candidates WHERE status = 'deferred' AND deferred_until > NOW(3)"))[0].c;
+  const deferredActive = (await my.query("SELECT COUNT(*) c FROM topic_candidates WHERE status = 'deferred' AND deferred_until > ?", [my.now()]))[0].c;
 
   // 关键词库分布告警
   const kwWarnings = [];
@@ -428,8 +437,7 @@ function heuristicValueScore(candidate, stats) {
     sourceSupport: Math.min(10, (my.asJson(candidate.source_urls_json) || []).length * 3 + 2),
     _estimated: true,
   };
-  let maxSim = 0;
-  for (const t of stats.recentTitles) maxSim = Math.max(maxSim, jaccard(candidate.topic, t));
+  const maxSim = findMostSimilar(candidate, stats.recentTitles.map((title) => ({ topic: title }))).similarity;
   if (maxSim >= 0.45) vb.nonRepetition = 4;
   else if (maxSim >= 0.3) vb.nonRepetition = 8;
   const total = vb.sellerPainValue + vb.actionability + vb.informationGain + vb.businessFit + vb.nonRepetition + vb.sourceSupport;

@@ -4,6 +4,7 @@ const mysql = require('mysql2/promise');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const runtime = require('./workflow_runtime_lib');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 
@@ -38,8 +39,20 @@ function getPool() {
 }
 
 async function query(sql, params = []) {
-  const [rows] = await getPool().execute(sql, params);
-  return rows;
+  try {
+    const [rows] = await getPool().execute(sql, params);
+    return rows;
+  } catch (err) {
+    if (['ETIMEDOUT', 'PROTOCOL_CONNECTION_LOST', 'ECONNRESET', 'ECONNREFUSED'].includes(err.code)) {
+      if (pool) {
+        await pool.end().catch(() => {});
+        pool = null;
+      }
+      const [rows] = await getPool().execute(sql, params);
+      return rows;
+    }
+    throw err;
+  }
 }
 
 // 多语句执行（schema 初始化用）
@@ -89,7 +102,7 @@ function asJson(v) {
 
 // DATETIME(3) 值（MySQL 不收 ISO 的 'T'/'Z'）
 function now() {
-  return new Date().toISOString().slice(0, 23).replace('T', ' ');
+  return runtime.mysqlDateTime(process.env.ENGINE_NOW);
 }
 
 function makeId(prefix) {
@@ -97,9 +110,9 @@ function makeId(prefix) {
 }
 
 function makeRunId(prefix = 'run') {
-  const d = new Date();
+  const d = runtime.engineNowDate(process.env.ENGINE_NOW);
   const p = (n, w = 2) => String(n).padStart(w, '0');
-  return `${prefix}_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}_${crypto.randomBytes(2).toString('hex')}`;
+  return `${prefix}_${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}_${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}_${crypto.randomBytes(2).toString('hex')}`;
 }
 
 function sha256(text) {

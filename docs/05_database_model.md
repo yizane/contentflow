@@ -70,3 +70,9 @@ status 语义：`deferred` = 高分但近期主题饱和（窗口后回池，仍
 新增 `article_quality_scores`（每次评分一条：7 维细项 + recommendation + raw_json）。
 `article_versions` 增加 `article_quality_json` / `article_quality_score` / `visual_plan_json`；`articles` 增加 `article_quality_score` / `visual_plan_json`；`publish_packages` 增加 `visual_plan_json` / `article_quality_json`，metadata_json 含文章主评分与视觉规划统计字段。
 新文章状态 `needs_quality_revision`：主评分 < 80 被门禁拦下，修订后重评。
+
+## 来源观察与主题去重审计（migration 011）
+
+新增 `source_canonical_items`：按 canonical URL/hash 折叠重复来源，记录 lane、usage_status、seen_count、last_seen_at、used_by_article_id。
+新增 `source_observations`：每日采集观察记录，按 `daily_key` 记录当天是否 new/seen/reactivated，保留 source_item 关联。
+新增 `topic_dedupe_records` 与 `topic_signals`：记录主题去重/延期/屏蔽决策，以及 source observation 是否合并进候选、未被模型选择或被拦截。

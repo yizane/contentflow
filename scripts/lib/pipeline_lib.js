@@ -6,15 +6,44 @@ const providers = require('./providers');
 const { extractJson } = providers;
 const prompts = require('./prompt_lib');
 const v = require('./validate_data_lib');
-const { loadPolicy, jaccard } = require('./production_policy_lib');
+const { loadPolicy } = require('./production_policy_lib');
 const { trustOf } = require('./sources_lib');
 const config = require('./config_lib');
 const trace = require('./trace_lib');
+const runtime = require('./workflow_runtime_lib');
+const { ingestCollectedSources, canonicalSourceIdsForUrls } = require('./source_ingest_lib');
+const { shouldRunDailyQuery, sourcePriorityScore } = require('./source_lanes_lib');
+const { decideTopicDedupe, duplicateDeferUntil } = require('./topic_dedupe_lib');
+const { canonicalUrlHash, normalizedTopic } = require('./source_identity_lib');
 const sourceRelevance = require('./topic_source_relevance_lib');
 
 // 子进程通过环境变量关联到 engine run 的 workflow step
 function currentStepId() {
   return process.env.WORKFLOW_STEP_ID || null;
+}
+
+function estimateTokens(text) {
+  if (!text) return 0;
+  const s = String(text);
+  const cjk = (s.match(/[\u3400-\u9fff]/g) || []).length;
+  const rest = s.length - cjk;
+  return Math.ceil(cjk + rest / 4);
+}
+
+function extractUsage(raw, prompt, response) {
+  const usage = raw && (raw.usage || raw.token_usage || raw.response && raw.response.usage || raw.result && raw.result.usage);
+  if (usage) {
+    return {
+      exact: true,
+      inputTokens: usage.prompt_tokens ?? usage.input_tokens ?? usage.inputTokens ?? null,
+      outputTokens: usage.completion_tokens ?? usage.output_tokens ?? usage.outputTokens ?? null,
+      totalTokens: usage.total_tokens ?? usage.totalTokens ?? null,
+      raw: usage,
+    };
+  }
+  const inputTokens = estimateTokens(prompt);
+  const outputTokens = estimateTokens(response);
+  return { exact: false, inputTokens, outputTokens, totalTokens: inputTokens + outputTokens };
 }
 
 const ROOT = my.ROOT;
@@ -38,16 +67,25 @@ async function callAgent({ taskType, prompt, sessionKey, engineRunId, articleId,
   const provider = route.providerKey;
   const model = route.model;
   const startedAt = my.now();
+  const wallStartedAt = Date.now();
   const stepId = currentStepId();
   await trace.logWorkflowEvent({ engineRunId, workflowStepId: stepId, eventType: 'openclaw_call_started', level: 'info', message: `${provider} ${taskType} 调用开始`, relatedType: 'model_run', data: { task_type: taskType, provider, model_name: model, session_key: sessionKey } });
 
   const res = await providers.runTask({ taskType: routeKey, message: prompt, sessionKey, timeoutSec, route });
   const parsed = res.ok ? extractJson(res.visibleText) : null;
+  const durationMs = res.durationMs ?? (Date.now() - wallStartedAt);
+  const usage = extractUsage(res.raw, prompt, res.visibleText || '');
   const modelRunId = await my.recordModelRun({
     engineRunId, articleId, articleVersionId, taskType, provider, model, sessionKey,
     taskPrompt: prompt, rawResponse: res.ok ? (res.visibleText || '').slice(0, 4_000_000) : null,
     parsedOutput: parsed, status: res.ok && parsed ? 'succeeded' : 'failed', startedAt,
     error: res.ok ? (parsed ? null : '回复中无法解析 JSON') : res.error,
+    rawSummary: {
+      durationMs,
+      promptChars: prompt.length,
+      responseChars: (res.visibleText || '').length,
+      usage,
+    },
   });
 
   const ok = res.ok && !!parsed;
@@ -55,9 +93,9 @@ async function callAgent({ taskType, prompt, sessionKey, engineRunId, articleId,
     engineRunId, workflowStepId: stepId,
     eventType: ok ? 'openclaw_call_completed' : 'openclaw_call_failed',
     level: ok ? 'info' : 'error',
-    message: ok ? `${provider} ${taskType} 完成（${res.durationMs}ms）` : `${provider} ${taskType} 失败: ${(res.error || '无法解析 JSON').slice(0, 150)}`,
+    message: ok ? `${provider} ${taskType} 完成（${durationMs}ms）` : `${provider} ${taskType} 失败: ${(res.error || '无法解析 JSON').slice(0, 150)}`,
     relatedType: 'article', relatedId: articleId || null,
-    data: { task_type: taskType, model_name: model, session_key: sessionKey, duration_ms: res.durationMs, parsed_ok: !!parsed, tokens: null, cost: null },
+    data: { task_type: taskType, model_name: model, session_key: sessionKey, duration_ms: durationMs, parsed_ok: !!parsed, tokens: usage, cost: null },
   });
   if (!res.ok) return { ok: false, error: res.error, modelRunId };
   if (!parsed) return { ok: false, error: `回复中无法解析 JSON: ${(res.visibleText || '').slice(0, 150)}`, modelRunId };
@@ -72,7 +110,7 @@ async function collectSources({ engineRunId }) {
   const { items, summary, warnings, perSource } = await legacy.collectHttpSources();
 
   // search_query 走一次 agent（按 query 记录采集日志）
-  const queries = config.getSourceItems().filter((s) => s.type === 'search_query' && s.query);
+  const queries = config.getSourceItems().filter((s) => s.type === 'search_query' && s.query && shouldRunDailyQuery(s));
   let searchByQuery = {};
   if (queries.length) {
     const sStart = Date.now();
@@ -87,7 +125,11 @@ async function collectSources({ engineRunId }) {
       const got = r.data.filter((x) => x && x.url && x.title).map((x) => ({
         title: String(x.title), url: String(x.url), summary: String(x.snippet || '').slice(0, 400),
         sourceName: String(x.sourceName || 'web_search'), sourceGroup: 'search_queries',
-        sourceCategory: queries.find((q) => q.query === x.query)?.category || 'search', itemType: 'search_query', publishedAt: '', _query: String(x.query || ''),
+        sourceCategory: queries.find((q) => q.query === x.query)?.category || 'search',
+        sourceLane: queries.find((q) => q.query === x.query)?.lane || 'news',
+        sourcePriority: queries.find((q) => q.query === x.query)?.priority || 'high',
+        sourceFreshness: queries.find((q) => q.query === x.query)?.freshness || 'breaking_news',
+        itemType: 'search_query', publishedAt: '', _query: String(x.query || ''),
       }));
       summary.searchQuery = got.length;
       items.push(...got);
@@ -109,24 +151,18 @@ async function collectSources({ engineRunId }) {
     }
   }
 
-  // url 去重 + 入库
-  const seen = new Set();
-  const deduped = items.filter((it) => it.url && !seen.has(it.url) && seen.add(it.url));
-  summary.total = deduped.length;
-  const now = my.now();
-  const insertedBySource = {};
-  const insertedRows = []; // 供采集后内容分类
-  for (const it of deduped) {
-    const sourceItemId = my.makeId('source');
-    await my.insert('source_items', {
-      id: sourceItemId, engine_run_id: engineRunId, source_name: it.sourceName, source_group: it.sourceGroup,
-      source_url: it.url, source_type: it.itemType, source_trust: trustOf(it.sourceCategory),
-      title: (it.title || '').slice(0, 510), summary: it.summary || null, content_text: null,
-      retrieved_at: now, as_of: (it.publishedAt || '').slice(0, 32) || null, raw_json: it, created_at: now,
-    });
-    insertedRows.push({ id: sourceItemId, title: it.title, summary: it.summary, source_group: it.sourceGroup, source_name: it.sourceName });
-    insertedBySource[it.sourceName] = (insertedBySource[it.sourceName] || 0) + 1;
-  }
+  const runRows = engineRunId ? await my.query('SELECT daily_key FROM engine_runs WHERE id = ? LIMIT 1', [engineRunId]) : [];
+  const dailyKey = process.env.ENGINE_DAILY_KEY || (runRows[0] && runRows[0].daily_key) || null;
+  const ingest = await ingestCollectedSources({ items, engineRunId, dailyKey, now: my.now(), trustOf });
+  summary.total = ingest.observations;
+  summary.inserted = ingest.insertedSources;
+  summary.duplicatesHistorical = ingest.seenSources;
+  summary.reactivated = ingest.reactivatedSources;
+  summary.ignored = ingest.ignored;
+  const insertedRows = ingest.insertedRows; // 供采集后内容分类
+  const insertedBySource = ingest.insertedBySource;
+  const observedBySource = ingest.observedBySource || {};
+  warnings.push(...ingest.warnings);
 
   // 内容分类（规则优先；AI 限额 3 批，剩余低置信走 content:classify 回填）。失败不阻断采集。
   try {
@@ -143,7 +179,7 @@ async function collectSources({ engineRunId }) {
   for (const p of perSource) {
     await trace.logSourceCollection({
       engineRunId, workflowStepId: stepId, source: p.source, status: p.status, httpStatus: p.httpStatus,
-      itemsFound: p.itemsFound, itemsInserted: insertedBySource[p.source.name] || 0,
+      itemsFound: p.itemsFound, itemsInserted: observedBySource[p.source.name] || insertedBySource[p.source.name] || 0,
       durationMs: p.durationMs, errorMessage: p.errorMessage, warningMessage: p.warningMessage,
       sampleTitles: p.sampleTitles,
     });
@@ -156,15 +192,227 @@ async function collectSources({ engineRunId }) {
   return { summary, warnings };
 }
 
+function sourceScopePolicy(policy) {
+  return {
+    news_limit: 25,
+    news_window_hours: 72,
+    policy_limit: 15,
+    policy_window_hours: 168,
+    knowledge_limit: 40,
+    knowledge_pool_limit: 120,
+    knowledge_soft_expire_days: 90,
+    ...(policy.source_scope || {}),
+  };
+}
+
+function mysqlHoursAgo(hours) {
+  const d = runtime.engineNowDate(process.env.ENGINE_NOW);
+  d.setUTCHours(d.getUTCHours() - hours);
+  return runtime.mysqlDateTimeFromDate(d);
+}
+
+function parseJsonArray(value) {
+  const parsed = my.asJson(value);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function sourceConfigByName() {
+  const map = new Map();
+  for (const s of config.getSourceItems()) map.set(s.name, s);
+  return map;
+}
+
+async function updateKnowledgePromptCounts(items) {
+  const ids = [...new Set(items.filter((i) => i.lane === 'knowledge').map((i) => i.canonical_url_hash).filter(Boolean))];
+  for (const hash of ids) {
+    await my.query('UPDATE source_canonical_items SET times_in_prompt = times_in_prompt + 1, updated_at = ? WHERE canonical_url_hash = ?', [my.now(), hash]);
+  }
+}
+
+async function selectTopicSourceItems({ engineRunId, policy }) {
+  const scope = sourceScopePolicy(policy);
+  const configByName = sourceConfigByName();
+  const fields = `
+    si.id, si.source_group, si.source_name, si.source_url, si.title, si.summary,
+    si.content_type, si.business_category,
+    sci.canonical_url_hash, sci.lane, sci.first_seen_at, sci.usage_status, sci.times_in_prompt,
+    COUNT(so.id) AS observation_count,
+    JSON_ARRAYAGG(so.id) AS observation_ids_json
+  `;
+  const groupBy = `
+    si.id, si.source_group, si.source_name, si.source_url, si.title, si.summary,
+    si.content_type, si.business_category,
+    sci.canonical_url_hash, sci.lane, sci.first_seen_at, sci.usage_status, sci.times_in_prompt
+  `;
+
+  let news = [];
+  let policyRows = [];
+  if (engineRunId) {
+    news = await my.query(`
+      SELECT ${fields}
+      FROM source_observations so
+      JOIN source_canonical_items sci ON sci.canonical_url_hash = so.canonical_url_hash
+      JOIN source_items si ON si.id = sci.source_item_id
+      WHERE so.engine_run_id = ? AND sci.lane = 'news' AND sci.first_seen_at >= ?
+      GROUP BY ${groupBy}
+      ORDER BY MAX(so.created_at) DESC
+      LIMIT ${Math.max(1, Math.min(200, scope.news_limit))}
+    `, [engineRunId, mysqlHoursAgo(scope.news_window_hours)]);
+
+    policyRows = await my.query(`
+      SELECT ${fields}
+      FROM source_observations so
+      JOIN source_canonical_items sci ON sci.canonical_url_hash = so.canonical_url_hash
+      JOIN source_items si ON si.id = sci.source_item_id
+      WHERE so.engine_run_id = ? AND sci.lane = 'policy'
+        AND (sci.first_seen_at >= ? OR sci.reactivated_at >= ?)
+      GROUP BY ${groupBy}
+      ORDER BY GREATEST(sci.first_seen_at, COALESCE(sci.reactivated_at, sci.first_seen_at)) DESC
+      LIMIT ${Math.max(1, Math.min(200, scope.policy_limit))}
+    `, [engineRunId, mysqlHoursAgo(scope.policy_window_hours), mysqlHoursAgo(scope.policy_window_hours)]);
+  }
+
+  const knowledgePool = await my.query(`
+    SELECT si.id, si.source_group, si.source_name, si.source_url, si.title, si.summary,
+           si.content_type, si.business_category,
+           sci.canonical_url_hash, sci.lane, sci.first_seen_at, sci.usage_status, sci.times_in_prompt,
+           0 AS observation_count,
+           JSON_ARRAY() AS observation_ids_json
+    FROM source_canonical_items sci
+    JOIN source_items si ON si.id = sci.source_item_id
+    WHERE sci.lane = 'knowledge' AND sci.usage_status = 'unused'
+    ORDER BY sci.times_in_prompt ASC, sci.first_seen_at DESC
+    LIMIT ${Math.max(scope.knowledge_limit, Math.min(500, scope.knowledge_pool_limit))}
+  `);
+  const knowledge = knowledgePool
+    .map((row) => {
+      const src = configByName.get(row.source_name) || {};
+      const ageDays = row.first_seen_at ? Math.max(0, (runtime.engineNowDate(process.env.ENGINE_NOW).getTime() - new Date(row.first_seen_at).getTime()) / 86400000) : 0;
+      const oldPenalty = ageDays > scope.knowledge_soft_expire_days ? 20 : 0;
+      return {
+        ...row,
+        priority_rank: sourcePriorityScore(src),
+        lane_sort_score: sourcePriorityScore(src) - Math.min(15, Math.floor(ageDays / 14)) - oldPenalty - (Number(row.times_in_prompt || 0) * 5),
+      };
+    })
+    .sort((a, b) => b.lane_sort_score - a.lane_sort_score || Number(a.times_in_prompt || 0) - Number(b.times_in_prompt || 0))
+    .slice(0, Math.max(1, Math.min(200, scope.knowledge_limit)));
+
+  const combined = [...news, ...policyRows, ...knowledge];
+  const seenIds = new Set();
+  const deduped = combined.filter((row) => {
+    if (seenIds.has(row.id)) return false;
+    seenIds.add(row.id);
+    return true;
+  });
+  await updateKnowledgePromptCounts(deduped);
+  return {
+    items: deduped,
+    summary: { news: news.length, policy: policyRows.length, knowledge: knowledge.length, total: deduped.length, scope },
+  };
+}
+
+async function insertTopicDedupeRecord({ engineRunId, topicCandidateId = null, candidate, decision, recordDecision }) {
+  await my.insert('topic_dedupe_records', {
+    id: my.makeId('tdedupe'),
+    engine_run_id: engineRunId || null,
+    topic_candidate_id: topicCandidateId,
+    duplicate_of_topic_candidate_id: decision.duplicateOfTopicCandidateId || null,
+    candidate_topic: String(candidate.topic || '').slice(0, 510),
+    normalized_topic: normalizedTopic(candidate.topic || '').slice(0, 510),
+    primary_keyword: candidate.primaryKeyword || null,
+    decision: recordDecision,
+    similarity: decision.similarity == null ? null : Number(decision.similarity.toFixed(4)),
+    reason: decision.reason || null,
+    raw_candidate_json: candidate,
+    created_at: my.now(),
+  });
+}
+
+async function insertTopicSignal({ engineRunId, observationId, sourceItemId, topicCandidateId, topic, status, score, reason, raw }) {
+  await my.insert('topic_signals', {
+    id: my.makeId('tsig'),
+    engine_run_id: engineRunId || null,
+    source_observation_id: observationId || null,
+    source_item_id: sourceItemId || null,
+    topic_candidate_id: topicCandidateId || null,
+    signal_topic: topic ? String(topic).slice(0, 510) : null,
+    status,
+    score: score == null ? null : Math.round(score),
+    reason: reason || null,
+    raw_json: raw || null,
+    created_at: my.now(),
+  });
+}
+
+async function writeUnselectedObservationSignals({ engineRunId, allObservationIds, matchedObservationIds, sourceItemIdByObservationId }) {
+  let count = 0;
+  for (const observationId of allObservationIds) {
+    if (matchedObservationIds.has(observationId)) continue;
+    await insertTopicSignal({
+      engineRunId,
+      observationId,
+      sourceItemId: sourceItemIdByObservationId.get(observationId) || null,
+      topicCandidateId: null,
+      topic: null,
+      status: 'not_selected_by_model',
+      reason: 'source observation was included in prompt scope but no candidate cited it',
+    });
+    count++;
+  }
+  return count;
+}
+
 // ---------- 主题生成（含去重节流，写 topic_candidates）----------
 async function generateTopics({ engineRunId }) {
   await config.ensureInit();
-  const items = await my.query('SELECT id, source_group, source_name, source_url, title, summary, content_type, business_category FROM source_items ORDER BY created_at DESC LIMIT 60');
+  const policy = loadPolicy();
+  let items = [];
+  let sourceScope = 'global_recent';
+  let sourceScopeSummary = null;
+  if (engineRunId) {
+    const scoped = await selectTopicSourceItems({ engineRunId, policy });
+    items = scoped.items;
+    sourceScope = 'engine_run_lanes';
+    sourceScopeSummary = scoped.summary;
+  }
+  if (items.length === 0) {
+    items = await my.query(`
+      SELECT id, source_group, source_name, source_url, title, summary, content_type, business_category,
+             NULL AS canonical_url_hash, NULL AS lane, 0 AS observation_count, JSON_ARRAY() AS observation_ids_json
+      FROM source_items ORDER BY created_at DESC LIMIT 60
+    `);
+    sourceScope = 'global_recent_fallback';
+  }
   if (items.length === 0) return { ok: false, error: '没有 source_items，请先 collect:sources' };
+  const sourceIdsByUrl = new Map();
+  const sourceIdsByHash = new Map();
+  const allObservationIds = new Set();
+  const matchedObservationIds = new Set();
+  const sourceItemIdByObservationId = new Map();
   const sourceByUrl = sourceRelevance.buildSourceUrlMap(items);
+  for (const item of items) {
+    if (item.source_url) {
+      if (!sourceIdsByUrl.has(item.source_url)) sourceIdsByUrl.set(item.source_url, []);
+      sourceIdsByUrl.get(item.source_url).push(item.id);
+      const hash = canonicalUrlHash(item.source_url);
+      if (!sourceIdsByHash.has(hash)) sourceIdsByHash.set(hash, []);
+      sourceIdsByHash.get(hash).push(item.id);
+    }
+    const obsIds = parseJsonArray(item.observation_ids_json);
+    for (const obsId of obsIds) {
+      allObservationIds.add(obsId);
+      sourceItemIdByObservationId.set(obsId, item.id);
+    }
+  }
   const keywordsCsv = config.getKeywordsCsv();
 
-  const recentForRepetition = (await my.query("SELECT title FROM articles WHERE status != 'archived' AND created_at >= DATE_SUB(NOW(3), INTERVAL 30 DAY) ORDER BY created_at DESC LIMIT 20")).map((x) => x.title);
+  const daysAgo = (n) => {
+    const d = runtime.engineNowDate(process.env.ENGINE_NOW);
+    d.setUTCDate(d.getUTCDate() - n);
+    return runtime.mysqlDateTimeFromDate(d);
+  };
+  const recentForRepetition = (await my.query("SELECT title FROM articles WHERE status != 'archived' AND created_at >= ? ORDER BY created_at DESC LIMIT 20", [daysAgo(30)])).map((x) => x.title);
   const r = await callAgent({
     taskType: 'topic_generation',
     prompt: prompts.topicGenerationPrompt({ sourceItems: items, keywordsCsv, recentTopics: recentForRepetition }),
@@ -178,43 +426,38 @@ async function generateTopics({ engineRunId }) {
   if (!validation.ok) return { ok: false, error: validation.issues.slice(0, 5).join('; ') };
 
   // 去重节流（production_policy）
-  const policy = loadPolicy();
   const d = policy.dedupe;
-  const daysAgo = (n) => my.now().slice(0, 10 + 13) && new Date(Date.now() - n * 86400000).toISOString().slice(0, 23).replace('T', ' ');
   const recentTopics = [
-    ...(await my.query('SELECT title AS t FROM articles WHERE created_at >= ?', [daysAgo(d.normalized_topic_window_days)])).map((x) => x.t),
-    ...(await my.query("SELECT topic AS t FROM topic_candidates WHERE created_at >= ? AND status != 'rejected'", [daysAgo(d.normalized_topic_window_days)])).map((x) => x.t),
+    ...(await my.query('SELECT id, title AS topic, NULL AS normalized_topic FROM articles WHERE created_at >= ?', [daysAgo(d.normalized_topic_window_days)])),
+    ...(await my.query("SELECT id, topic, normalized_topic FROM topic_candidates WHERE created_at >= ? AND status != 'rejected'", [daysAgo(d.normalized_topic_window_days)])),
   ];
 
   const now = my.now();
   let inserted = 0;
-  let duplicates = 0;
-  let dedupeRejected = 0;
+  let shadowDuplicates = 0;
+  let deferredDuplicates = 0;
+  let deferredKeywords = 0;
   let sourceRejected = 0;
+  let uniqueInserted = 0;
+  let topicSignals = { mergedIntoCandidate: 0, notSelectedByModel: 0, blockedDuplicate: 0 };
   for (const rawCandidate of r.data.candidates) {
     const relevance = sourceRelevance.assessCandidateSourceRelevance(rawCandidate, sourceByUrl);
     const c = sourceRelevance.applyCandidateSourceScoreGuard(rawCandidate, relevance);
-    const sourceItemIds = sourceRelevance.sourceIdsForCandidate(c, sourceByUrl);
-    const norm = c.topic.replace(/\s+/g, '');
-    const exists = await my.query('SELECT id FROM topic_candidates WHERE normalized_topic = ? LIMIT 1', [norm]);
-    if (exists.length) { duplicates++; continue; }
-
-    let rejection = null;
-    let rejectionType = null;
-    if (c.rejected) {
-      rejection = c.reason;
-      rejectionType = 'source_relevance';
-    }
-    if (!rejection && policy.topic_generation.reject_if_similar_topic_recent) {
-      for (const t of recentTopics) {
-        const sim = jaccard(c.topic, t);
-        if (sim >= 0.55) { rejection = `近 ${d.normalized_topic_window_days} 天高相似主题（Jaccard ${sim.toFixed(2)}）: ${t.slice(0, 40)}`; rejectionType = 'dedupe'; break; }
-      }
-    }
-    if (!rejection) {
-      const kwCount = (await my.query('SELECT COUNT(*) c FROM articles WHERE primary_keyword = ? AND created_at >= ?', [c.primaryKeyword, daysAgo(d.primary_keyword_window_days)]))[0].c;
-      if (kwCount >= d.max_articles_per_primary_keyword_in_window) { rejection = `primary_keyword 近 ${d.primary_keyword_window_days} 天已 ${kwCount} 篇`; rejectionType = 'dedupe'; }
-    }
+    const sourceRejectedByRelevance = !!c.rejected;
+    const norm = normalizedTopic(c.topic);
+    const exactExisting = await my.query('SELECT id, topic, normalized_topic FROM topic_candidates WHERE normalized_topic = ? LIMIT 1', [norm]);
+    const kwCount = (await my.query('SELECT COUNT(*) c FROM articles WHERE primary_keyword = ? AND created_at >= ?', [c.primaryKeyword, daysAgo(d.primary_keyword_window_days)]))[0].c;
+    const decision = sourceRejectedByRelevance
+      ? { decision: 'source_rejected', reason: c.reason, similarity: null }
+      : decideTopicDedupe(
+        c,
+        exactExisting.length ? [...exactExisting, ...recentTopics] : recentTopics,
+        policy,
+        {
+          keywordArticleCount: kwCount,
+          keywordLimit: d.max_articles_per_primary_keyword_in_window,
+        }
+      );
 
     // 内容分类：优先采用主题生成 AI 直出（继承/修正后的结果），缺失或非法时回退规则分类
     const tax = require('./taxonomy_lib');
@@ -229,18 +472,82 @@ async function generateTopics({ engineRunId }) {
     }
 
     const topicId = my.makeId('topiccand');
+    const sourceUrls = Array.isArray(c.sourceUrls) ? c.sourceUrls : [];
+    const canonicalMatches = await canonicalSourceIdsForUrls(sourceUrls);
+    const sourceItemIds = [...new Set(sourceUrls.flatMap((url) => {
+      const direct = sourceIdsByUrl.get(url) || [];
+      const byHash = sourceIdsByHash.get(canonicalUrlHash(url)) || [];
+      const canonical = canonicalMatches.get(url) ? [canonicalMatches.get(url)] : [];
+      return [...direct, ...byHash, ...canonical];
+    }))];
+    const candidateObservationIds = [];
+    for (const item of items) {
+      if (!sourceItemIds.includes(item.id)) continue;
+      candidateObservationIds.push(...parseJsonArray(item.observation_ids_json));
+    }
+
+    if (!sourceRejectedByRelevance && decision.decision === 'shadow_duplicate') {
+      await insertTopicDedupeRecord({ engineRunId, candidate: c, decision, recordDecision: 'shadow_duplicate' });
+      shadowDuplicates++;
+      for (const obsId of new Set(candidateObservationIds)) {
+        matchedObservationIds.add(obsId);
+        await insertTopicSignal({
+          engineRunId, observationId: obsId, sourceItemId: sourceItemIdByObservationId.get(obsId) || null,
+          topicCandidateId: null, topic: c.topic, status: 'blocked_duplicate', score: c.score,
+          reason: decision.reason, raw: c,
+        });
+        topicSignals.blockedDuplicate++;
+      }
+      await trace.logWorkflowEvent({
+        engineRunId, workflowStepId: currentStepId(),
+        eventType: 'topic_candidate_shadow_duplicate',
+        level: 'warning',
+        message: `重复候选未入池: ${c.topic.slice(0, 50)}（${(decision.reason || '').slice(0, 80)}）`,
+        relatedType: 'topic_dedupe_record', data: { score: c.score, similarity: decision.similarity },
+      });
+      continue;
+    }
+
+    let status = sourceRejectedByRelevance ? 'rejected' : 'candidate';
+    let selectionStatus = sourceRejectedByRelevance ? 'rejected_source_relevance' : null;
+    let selectionSkipReason = sourceRejectedByRelevance ? c.reason : null;
+    let deferredUntil = null;
+    let recordDecision = sourceRejectedByRelevance ? 'source_rejected' : 'unique_inserted';
+    if (sourceRejectedByRelevance) {
+      sourceRejected++;
+    } else if (decision.decision === 'deferred_duplicate') {
+      status = 'deferred';
+      selectionStatus = 'skipped_duplicate';
+      selectionSkipReason = decision.reason;
+      deferredUntil = duplicateDeferUntil(runtime.engineNowDate(process.env.ENGINE_NOW), policy.topic_dedupe?.duplicate_defer_days || 14);
+      recordDecision = 'deferred_duplicate';
+      deferredDuplicates++;
+    } else if (decision.decision === 'deferred_keyword') {
+      status = 'deferred';
+      selectionStatus = 'skipped_recent_keyword';
+      selectionSkipReason = decision.reason;
+      deferredUntil = duplicateDeferUntil(runtime.engineNowDate(process.env.ENGINE_NOW), policy.topic_dedupe?.duplicate_defer_days || 14);
+      recordDecision = 'deferred_keyword';
+      deferredKeywords++;
+    } else {
+      uniqueInserted++;
+    }
+
     await my.insert('topic_candidates', {
       id: topicId, engine_run_id: engineRunId, topic: c.topic.slice(0, 510), normalized_topic: norm.slice(0, 510),
       primary_keyword: c.primaryKeyword, secondary_keywords_json: c.secondaryKeywords || [], category: c.category,
-      content_angle: c.contentAngle, business_angle: c.businessAngle, source_item_ids_json: sourceItemIds, source_urls_json: c.sourceUrls || [],
+      content_angle: c.contentAngle, business_angle: c.businessAngle, source_item_ids_json: sourceItemIds, source_urls_json: sourceUrls,
       score: Math.round(c.score), raw_score: Math.round(c.score),
       content_value_score: c.contentValueScore != null ? Math.round(c.contentValueScore) : null,
       value_breakdown_json: c.contentValueScore != null ? {
         sellerPainValue: c.sellerPainValue, actionability: c.actionability, informationGain: c.informationGain,
         businessFit: c.businessFit, nonRepetition: c.nonRepetition, sourceSupport: c.sourceSupport,
       } : null,
-      priority: c.priority, status: rejection ? 'rejected' : 'candidate',
-      reject_reason: rejection ? `[${rejectionType || 'dedupe'}] ${rejection}` : c.rejectRisk || null,
+      priority: c.priority, status,
+      reject_reason: sourceRejectedByRelevance ? `[source_relevance] ${c.reason}` : c.rejectRisk || null,
+      selection_status: selectionStatus,
+      selection_skip_reason: selectionSkipReason,
+      deferred_until: deferredUntil,
       content_type: cls ? cls.contentType : null, business_category: cls ? cls.businessCategory : null,
       topic_cluster: cls ? cls.topicCluster : null,
       classification_confidence: cls ? cls.confidence : null, classification_reason: cls ? cls.reason : null,
@@ -253,18 +560,45 @@ async function generateTopics({ engineRunId }) {
         confidence: cls.confidence, reason: cls.reason, classifier_type: clsBy, model_run_id: null, raw_json: null, created_at: now,
       });
     }
-    if (rejection && rejectionType === 'source_relevance') sourceRejected++;
-    else if (rejection) dedupeRejected++;
-    else inserted++;
+    await insertTopicDedupeRecord({ engineRunId, topicCandidateId: topicId, candidate: c, decision, recordDecision });
+    for (const obsId of new Set(candidateObservationIds)) {
+      matchedObservationIds.add(obsId);
+      await insertTopicSignal({
+        engineRunId, observationId: obsId, sourceItemId: sourceItemIdByObservationId.get(obsId) || null,
+        topicCandidateId: topicId, topic: c.topic,
+        status: sourceRejectedByRelevance ? 'blocked_source_relevance' : 'merged_into_candidate',
+        score: c.score,
+        reason: sourceRejectedByRelevance ? c.reason : null,
+        raw: c,
+      });
+      if (!sourceRejectedByRelevance) topicSignals.mergedIntoCandidate++;
+    }
+    inserted++;
     await trace.logWorkflowEvent({
       engineRunId, workflowStepId: currentStepId(),
-      eventType: rejection ? 'topic_candidate_rejected' : 'topic_candidate_created',
-      level: rejection ? 'warning' : 'info',
-      message: rejection ? `候选被拒绝: ${c.topic.slice(0, 50)}（${rejection.slice(0, 80)}）` : `候选入池: ${c.topic.slice(0, 50)}（${c.score} 分）`,
-      relatedType: 'topic_candidate', data: { score: c.score, priority: c.priority, rejection_type: rejectionType, source_item_ids: sourceItemIds },
+      eventType: sourceRejectedByRelevance ? 'topic_candidate_rejected' : selectionSkipReason ? 'topic_candidate_deferred_by_dedupe' : 'topic_candidate_created',
+      level: selectionSkipReason ? 'warning' : 'info',
+      message: sourceRejectedByRelevance
+        ? `候选被拒绝: ${c.topic.slice(0, 50)}（${c.reason.slice(0, 80)}）`
+        : selectionSkipReason ? `候选 deferred: ${c.topic.slice(0, 50)}（${selectionSkipReason.slice(0, 80)}）` : `候选入池: ${c.topic.slice(0, 50)}（${c.score} 分）`,
+      relatedType: 'topic_candidate',
+      data: { score: c.score, priority: c.priority, sourceItemIds: sourceItemIds.length, rejection_type: sourceRejectedByRelevance ? 'source_relevance' : null },
     });
   }
-  return { ok: true, inserted, duplicates, dedupeRejected, sourceRejected, warnings: validation.warnings.slice(0, 10) };
+  topicSignals.notSelectedByModel = await writeUnselectedObservationSignals({ engineRunId, allObservationIds, matchedObservationIds, sourceItemIdByObservationId });
+  return {
+    ok: true,
+    inserted,
+    duplicates: shadowDuplicates,
+    dedupeRejected: shadowDuplicates,
+    dedupeAdvisory: deferredDuplicates + deferredKeywords,
+    sourceRejected,
+    topicDedupe: { uniqueInserted, shadowDuplicates, deferredDuplicates, deferredKeywords, sourceRejected },
+    topicSignals,
+    sourceScope,
+    sourceScopeSummary,
+    warnings: validation.warnings.slice(0, 10),
+  };
 }
 
 // ---------- 文章 job ----------
@@ -273,6 +607,26 @@ function deriveFcStatus(readiness) {
   if (readiness === 'ready_after_minor_edits') return 'ready_for_review';
   if (readiness === 'not_ready') return 'fact_check_failed';
   return 'article_validated';
+}
+
+async function markKnowledgeSourcesUsed(topicCandidateId, articleId) {
+  if (!topicCandidateId || !articleId) return 0;
+  const row = (await my.query('SELECT source_item_ids_json FROM topic_candidates WHERE id = ? LIMIT 1', [topicCandidateId]))[0];
+  const ids = parseJsonArray(row && row.source_item_ids_json).filter(Boolean);
+  if (!ids.length) return 0;
+  let updated = 0;
+  for (const sourceItemId of [...new Set(ids)]) {
+    const res = await my.query(`
+      UPDATE source_canonical_items
+      SET usage_status = 'used',
+          used_at = ?,
+          used_by_article_id = ?,
+          updated_at = ?
+      WHERE source_item_id = ? AND lane = 'knowledge' AND usage_status = 'unused'
+    `, [my.now(), articleId, my.now(), sourceItemId]);
+    updated += res.affectedRows || 0;
+  }
+  return updated;
 }
 
 async function runArticleJob(job, { engineRunId, maxAttempts = 3 }) {
@@ -368,6 +722,7 @@ async function runArticleJob(job, { engineRunId, maxAttempts = 3 }) {
   await my.update('article_jobs', { status: 'generated', updated_at: now }, 'id = ?', [job.id]);
   if (job.topic_candidate_id) {
     await my.update('topic_candidates', { status: 'generated', updated_at: now }, 'id = ?', [job.topic_candidate_id]);
+    await markKnowledgeSourcesUsed(job.topic_candidate_id, articleId);
     await trace.logStatusTransition({ entityType: 'topic_candidate', entityId: job.topic_candidate_id, engineRunId, fromStatus: 'selected', toStatus: 'generated' });
   }
   await trace.logStatusTransition({ entityType: 'article_job', entityId: job.id, engineRunId, fromStatus: 'running', toStatus: 'generated' });
@@ -386,7 +741,9 @@ async function scoreArticleQuality(article, { engineRunId, force = false }) {
   if (!force && ver.article_quality_score != null) {
     return { ok: true, skipped: true, articleId: article.id, articleQualityScore: ver.article_quality_score };
   }
-  const recentTitles = (await my.query("SELECT title FROM articles WHERE id != ? AND status != 'archived' AND created_at >= DATE_SUB(NOW(3), INTERVAL 30 DAY) ORDER BY created_at DESC LIMIT 15", [article.id])).map((x) => x.title);
+  const recentSince = runtime.engineNowDate(process.env.ENGINE_NOW);
+  recentSince.setUTCDate(recentSince.getUTCDate() - 30);
+  const recentTitles = (await my.query("SELECT title FROM articles WHERE id != ? AND status != 'archived' AND created_at >= ? ORDER BY created_at DESC LIMIT 15", [article.id, runtime.mysqlDateTimeFromDate(recentSince)])).map((x) => x.title);
   const visualPlan = my.asJson(ver.visual_plan_json) || (my.asJson(ver.article_json) || {}).visualPlan || null;
 
   const r = await callAgent({
@@ -425,18 +782,17 @@ async function scoreArticleQuality(article, { engineRunId, force = false }) {
 async function gateReadyForReview(article, intendedStatus, { engineRunId }) {
   if (intendedStatus !== 'ready_for_review') return { status: intendedStatus, gated: false };
   let score = (await my.query('SELECT article_quality_score FROM articles WHERE id = ?', [article.id]))[0].article_quality_score;
+  let scoreOk = true;
   if (score == null) {
     const r = await scoreArticleQuality(article, { engineRunId });
+    scoreOk = r.ok;
     score = r.ok ? r.articleQualityScore : null;
   }
-  if (score != null && score < ARTICLE_QUALITY_MIN) {
-    return { status: 'needs_quality_revision', gated: true, score, reason: `文章质量主评分 ${score} < ${ARTICLE_QUALITY_MIN}（SEO/GEO 不能覆盖质量不足）` };
+  const gate = runtime.decideReadyGate({ intendedStatus, score, scoreOk, minScore: ARTICLE_QUALITY_MIN });
+  if (gate.gated && score == null) {
+    await trace.logWorkflowEvent({ engineRunId, workflowStepId: currentStepId(), eventType: 'article_quality_score_failed', level: 'warning', message: `文章 ${article.id} 质量评分失败，阻止进入终审`, relatedType: 'article', relatedId: article.id });
   }
-  // 评分失败（score 仍为 null）：保守放行但写警告（不让 AI 评分故障卡死流水线）
-  if (score == null) {
-    await trace.logWorkflowEvent({ engineRunId, workflowStepId: currentStepId(), eventType: 'article_quality_score_failed', level: 'warning', message: `文章 ${article.id} 质量评分失败，按原状态推进（请人工复核）`, relatedType: 'article', relatedId: article.id });
-  }
-  return { status: intendedStatus, gated: false, score };
+  return gate;
 }
 
 // ---------- 事实核查（对某文章的当前版本）----------
@@ -482,7 +838,7 @@ async function generateChannelsForArticle(article, { engineRunId, missingOnly = 
   await config.ensureInit();
   const ver = await my.latestVersion(article.id);
   if (!ver || !ver.article_markdown) return { generated: [], skipped: [], failed: [{ channel: '*', issues: ['无版本正文'] }] };
-  const existingRows = await my.query('SELECT channel FROM channel_outputs WHERE article_id = ?', [article.id]);
+  const existingRows = await my.query('SELECT channel FROM channel_outputs WHERE article_id = ? AND article_version_id = ?', [article.id, ver.id]);
   const existing = existingRows.map((c) => c.channel);
 
   let toGen = force ? [...CHANNELS] : CHANNELS.filter((c) => !existing.includes(c));
@@ -508,7 +864,7 @@ async function generateChannelsForArticle(article, { engineRunId, missingOnly = 
     const data = r.ok ? r.data[ch] : null;
     const validation = data ? v.validateChannelData(data, ch) : { ok: false, issues: [r.error || `回复缺少 ${ch}`] };
     if (!validation.ok) { failed.push({ channel: ch, issues: validation.issues.slice(0, 3) }); continue; }
-    const existingRow = (await my.query('SELECT id FROM channel_outputs WHERE article_id = ? AND channel = ?', [article.id, ch]))[0];
+    const existingRow = (await my.query('SELECT id FROM channel_outputs WHERE article_id = ? AND article_version_id = ? AND channel = ?', [article.id, ver.id, ch]))[0];
     const fields = {
       title: (data.title || '').slice(0, 510), content_markdown: data.contentMarkdown, content_json: data,
       status: 'validated', content_sha256: my.sha256(data.contentMarkdown), updated_at: now,
