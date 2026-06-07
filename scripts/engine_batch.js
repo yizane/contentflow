@@ -1,21 +1,13 @@
 #!/usr/bin/env node
 // engine_batch.js — 内容引擎主入口（DB-only：engine_runs 写 MySQL，子步骤经 ENGINE_RUN_ID 关联）
 // 用法: npm run engine:batch -- --limit 1 --min-score 80 [--strategy geo_first] [--skip-seo-geo-score] [--force] [--dry-run]
-const path = require('path');
-const { execFileSync } = require('child_process');
 const my = require('./lib/mysql_lib');
 const { loadPolicy } = require('./lib/production_policy_lib');
 const logger = require('./lib/logger_lib');
 const runtime = require('./lib/workflow_runtime_lib');
+const { makeStepRunner } = require('./lib/workflow_step_runner_lib');
 
 const ROOT = my.ROOT;
-
-function lastJson(stdout) {
-  const idx = stdout.lastIndexOf('\n{');
-  try { return JSON.parse(idx >= 0 ? stdout.slice(idx + 1) : stdout); } catch (_) {
-    try { return JSON.parse(stdout); } catch (_) { return null; }
-  }
-}
 
 let stepOrder = 0;
 
@@ -60,49 +52,6 @@ async function claimRetryReusableJobs(args, engineRunId) {
     await my.update('article_jobs', { engine_run_id: engineRunId, updated_at: now }, 'id = ?', [j.id]);
   }
   return jobs.length;
-}
-
-// 带 workflow_steps trace 的步骤执行：创建 step → 子进程（带 WORKFLOW_STEP_ID）→ 完结 step
-async function runStep(name, script, args = [], engineRunId, { skipped = false } = {}) {
-  const trace = require('./lib/trace_lib');
-  stepOrder++;
-  const stepId = await trace.createWorkflowStep({ engineRunId, stepKey: name.replace(/[:]/g, '_'), stepName: name, stepOrder, inputSummary: { args } });
-  if (skipped) {
-    await trace.finishWorkflowStep(stepId, { status: 'skipped' });
-    return { name, ok: true, skipped: true, result: null };
-  }
-  await trace.startWorkflowStep(stepId);
-  await trace.logWorkflowEvent({ engineRunId, workflowStepId: stepId, eventType: 'step_started', level: 'info', message: `步骤开始: ${name}` });
-
-  process.stdout.write(`\n=== [engine] ${name} ===\n`);
-  logger.log(`[${engineRunId}] 步骤开始: ${name} ${args.join(' ')}`);
-  let outcome;
-  try {
-    const out = execFileSync('node', [path.join(ROOT, 'scripts', script), ...args], {
-      encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 30 * 60 * 1000,
-      env: { ...process.env, ENGINE_RUN_ID: engineRunId, WORKFLOW_STEP_ID: stepId },
-    });
-    process.stdout.write(out.trim().slice(0, 1200) + '\n');
-    logger.log(`[${engineRunId}] 步骤输出 ${name}:\n${out.trim().slice(0, 3000)}`);
-    outcome = { name, ok: true, result: lastJson(out) };
-  } catch (err) {
-    const stdout = (err.stdout || '').toString();
-    const stderr = (err.stderr || '').toString();
-    process.stdout.write((stdout + stderr).trim().slice(0, 1200) + '\n');
-    const parsed = lastJson(stdout);
-    outcome = { name, ok: false, result: parsed, error: (parsed && parsed.error) || stderr.slice(0, 300) || 'unknown error' };
-    logger.logError(`[${engineRunId}] 步骤失败 ${name}: ${outcome.error}\nstdout: ${stdout.slice(0, 2000)}\nstderr: ${stderr.slice(0, 1000)}`);
-  }
-
-  const hasWarnings = outcome.result && Array.isArray(outcome.result.warnings) && outcome.result.warnings.length > 0;
-  await trace.finishWorkflowStep(stepId, {
-    status: outcome.ok ? (hasWarnings ? 'warning' : 'success') : 'failed',
-    outputSummary: outcome.result ? { ...outcome.result, results: undefined, items: undefined } : null,
-    warnings: hasWarnings ? outcome.result.warnings.slice(0, 10) : null,
-    errorMessage: outcome.ok ? null : outcome.error,
-  });
-  await trace.logWorkflowEvent({ engineRunId, workflowStepId: stepId, eventType: 'step_completed', level: outcome.ok ? 'info' : 'error', message: `步骤${outcome.ok ? '完成' : '失败'}: ${name}${outcome.ok ? '' : ` — ${outcome.error}`}` });
-  return outcome;
 }
 
 async function main() {
@@ -155,6 +104,14 @@ async function main() {
     is_active: args.isActive, triggered_by: args.triggeredBy, trigger_source: args.triggerSource,
   });
   const trace = require('./lib/trace_lib');
+  const runStep = makeStepRunner({
+    root: ROOT,
+    trace,
+    stepOrderRef: {
+      get value() { return stepOrder; },
+      set value(v) { stepOrder = v; },
+    },
+  });
   await trace.logWorkflowEvent({
     engineRunId,
     eventType: 'engine_started',
