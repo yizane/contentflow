@@ -253,6 +253,7 @@ function DayReport({ date, nav, toast }) {
                   style={{ cursor: "pointer", height: 24, gap: 6 }} title={r.id}>
                   <span style={{ width: 6, height: 6, borderRadius: "50%", background: `var(--${rs.tone}-solid)` }} />
                   {r.scope === "daily" ? "日更" : r.scope === "batch" ? "批跑" : r.scope}·{rs.text}
+                  {r.runner === "langgraph" && <span className="mono" style={{ fontSize: 9.5, color: "var(--brand-600)", fontWeight: 700 }}>langgraph</span>}
                   {r.started && <span className="mono" style={{ fontSize: 10.5, color: "var(--ink-4)" }}>{FLY.fmtHM(r.started)}</span>}
                 </button>
               );

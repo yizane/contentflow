@@ -252,6 +252,7 @@ async function listRunsUI(limit = 30) {
     id: r.id, key: r.daily_key || localDay(r.started_at) || '—',
     status: r.is_active ? runStatus(r.status) : 'superseded',
     mode: r.run_mode || 'start', scope: r.run_scope,
+    runner: (my.asJson(r.summary_json) || {}).runner || null, // langgraph 实验 runner 标识
     trigger: r.trigger_source || '—', actor: r.triggered_by || r.trigger_source || 'system',
     topics: r.topics_collected || 0, selected: r.topics_selected || 0,
     articles: r.articles_generated || 0, checks: r.fact_checks_completed || 0,
@@ -555,6 +556,7 @@ async function uiDay(date) {
     steps,
     runs: runs.map((r) => ({
       id: r.id, scope: r.run_scope, mode: r.run_mode, status: r.is_active ? runStatus(r.status) : 'superseded',
+      runner: (my.asJson(r.summary_json) || {}).runner || null,
       started: dt(r.started_at), finished: dt(r.finished_at), durMs: durMs(r.started_at, r.finished_at),
       articles: r.articles_generated || 0, error: r.error_message || null,
     })),
@@ -1044,6 +1046,7 @@ async function uiRun(idOrKey) {
       id: run.id, key: run.daily_key || localDay(run.started_at) || '—',
       status: run.is_active ? runStatus(run.status) : 'superseded',
       mode: run.run_mode || 'start', scope: run.run_scope,
+      runner: (my.asJson(run.summary_json) || {}).runner || null,
       trigger: run.trigger_source || '—', actor: run.triggered_by || run.trigger_source || 'system',
       started: dt(run.started_at), finished: dt(run.finished_at), durMs: durMs(run.started_at, run.finished_at),
       error: run.error_message || null,

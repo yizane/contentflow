@@ -78,7 +78,7 @@ function RunHistory({ nav, params }) {
                       <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-4)" }}>{r.id}{r.note ? ` · ${r.note}` : ""}</div>
                     </td>
                     <td><Badge tone={st.tone}>{st.text}</Badge></td>
-                    <td><span className="chip" style={{ height: 22, fontSize: 11.5 }}>{FLY.MODE_META[r.mode] || r.mode}</span></td>
+                    <td><span className="chip" style={{ height: 22, fontSize: 11.5 }}>{FLY.MODE_META[r.mode] || r.mode}</span>{r.runner === "langgraph" && <span className="chip mono" title="LangGraph 实验编排（summary_json.runner）" style={{ height: 18, fontSize: 9.5, marginLeft: 4, background: "var(--brand-50)", borderColor: "var(--brand-200)", color: "var(--brand-700)" }}>langgraph</span>}</td>
                     <td className="muted" style={{ fontSize: 12.5 }}>{r.trigger}</td>
                     <td style={{ fontSize: 12.5 }}>{r.actor}</td>
                     <td className="muted" style={{ fontSize: 12 }}><span className="tnum">资讯 {r.topics} · 文章 {r.articles} · 渠道 {r.channels}</span></td>
@@ -141,6 +141,7 @@ function RunDetail({ nav, params, toast, onAction }) {
               <span className="mono" style={{ fontSize: 17, fontWeight: 700 }}>{run.key}</span>
               <Badge tone={FLY.runStatus(run.status).tone} lg>{FLY.runStatus(run.status).text}</Badge>
               <span className="chip" style={{ height: 24 }}>{FLY.MODE_META[run.mode] || run.mode}</span>
+              {run.runner === "langgraph" && <span className="chip mono" title="LangGraph 实验编排" style={{ height: 22, fontSize: 10.5, background: "var(--brand-50)", borderColor: "var(--brand-200)", color: "var(--brand-700)" }}>langgraph</span>}
               <span className="mono" style={{ fontSize: 11.5, color: "var(--ink-4)" }}>{run.id}</span>
             </div>
             <div style={{ display: "flex", gap: 18, color: "var(--ink-2)", fontSize: 12.5, fontWeight: 600, flexWrap: "wrap" }}>
