@@ -4,7 +4,8 @@
 
 ```
 collect_sources → topic_generation → create_article_jobs → article_generation
-→ fact_check → (source_fix 按需) → channel_repurpose → seo_geo_score
+→ fact_check / article_quality_gate（循环补位到日产目标）
+→ seo_geo_score → channel_repurpose
 → export_package → engine_report
 ```
 
@@ -26,6 +27,10 @@ trace 写入失败不会中断主流程（计数 + console.warn），engine run 
 
 - 每天一个主键 `daily_key = YYYY-MM-DD`，**默认一天只有一个 active daily run**（应用层在 run_control_lib.canStartDaily 控制；未加 DB 唯一约束——is_active 为 TINYINT，唯一约束会阻止多条历史 inactive 记录）。
 - 模式：`start`（无 active run 才允许）/ `retry`（仅 failed/partial；复用当天未完成 job，跳过已成功数据）/ `rebuild`（归档旧 run 后完整重跑）/ `force`（高级：额外 run，默认 is_active=false，`--make-active` 才接管）。
+- 日产验收口径：默认 `--target-ready 5`，以 5 篇 `ready_for_review` 文章为成功，不以“跑完一遍步骤”或“创建 5 个选题”计数。
+- 质量不达标或评分失败：文章进入 `needs_quality_revision`，不计入日产目标；engine 继续消费下一个候选补位，直到达到 target 或 `--max-attempts`。
+- retry 先检查当天 pending/failed job；存在可复用 job 时直接接管到新 run，跳过 source/topic/job 新建，避免污染候选池。
+- 模拟/回填：`--as-of-date YYYY-MM-DD` 会设置内部 `ENGINE_NOW`，该日 run 的 `daily_key`、`engine_runs.started_at/finished_at`、业务表 created_at/updated_at 都写入对应模拟日。
 - rebuild **不物理删除**：旧 run → superseded；topic_candidates → archived；pending/failed job → cancelled；非 approved/published 文章及其版本/包/渠道 → archived/superseded；approved_for_publish/published **不自动归档**，输出 warning。全程写 status_transitions。
 - 所有触发（CLI/Viewer）写 `run_actions`（accepted/rejected/running/success/failed）。
 - engine:batch 不参与 daily 唯一性（run_scope=batch）。
@@ -92,6 +97,6 @@ sellerPainValue 20 / actionability 20 / informationGain 20 / businessFit 15 / no
 
 评分维度：sellerPainFit 20 / actionability 20 / informationGain 20 / originality 10 / clarity 10 / evidenceUse 10 / businessUsefulness 10。类型特判：趋势类必须写卖家操作影响；干货类必须有步骤/清单；快讯必须有卖家影响+下一步。
 
-**视觉规划（visualPlan）**：文章生成/修订必须输出 ≥2 个视觉规划（id/placement/visualType/title/purpose/description/caption/altText/imagePrompt/required），正文插 `> [配图建议 visual_N：…]` 占位。系统只存规划不生成图片、不存二进制；操作指南配 process_flow/checklist_card，趋势配 comparison_chart/diagram。Viewer 详情页「视觉规划」Tab 可逐条查看并复制生图提示。
+**视觉规划（JSON 字段 `visualPlan`）**：文章生成/修订必须输出 ≥2 个视觉规划（id/placement/visualType/title/purpose/description/caption/altText/imagePrompt/required），正文插 `> [配图建议 visual_N：…]` 占位。系统只存规划不生成图片、不存二进制；操作指南配 process_flow/checklist_card，趋势配 comparison_chart/diagram。Viewer 详情页「视觉规划」Tab 可逐条查看并复制生图提示。
 
 命令：`npm run score:article-quality -- --status ready_for_review | --article-id <id> [--force]`

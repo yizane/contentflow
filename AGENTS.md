@@ -7,7 +7,7 @@
 
 ## 系统一句话
 
-MySQL-only 内容生产引擎：采集 → 选题（组合平衡 + 价值评分）→ 生成 → 事实核查/补源修订 → 渠道改写 → SEO/GEO 评分 → 发布包 → 人工终审。模型调用经 `scripts/lib/providers/` 抽象层（生产路径 openclaw_cli）。
+MySQL-only 内容生产引擎：采集 → 选题（组合平衡 + 价值评分）→ 生成 → 事实核查/质量门禁 → SEO/GEO 评分 → 渠道改写 → 发布包 → 人工终审。模型调用经 `scripts/lib/providers/` 抽象层（生产路径 openclaw_cli）。
 
 ## 目录与命名（严格遵守）
 
@@ -29,16 +29,18 @@ scripts/
 3. **质量优先级**：article_quality_score（主评分）>= 80 才能进 ready_for_review > 事实可靠性是底线 > SEO/GEO 只是建议线，永远不能覆盖前两者。
 4. **选题语义**：高分但近期主题饱和 → `deferred`（带 deferred_until，窗口后回池）；`rejected` 仅用于低质/高风险/无业务价值。
 5. **分类体系**：source_group（来源）≠ content_type/business_category/topic_cluster（内容三层分类，config/content_taxonomy.yaml）。
-6. 不自动生成图片、不把二进制放数据库；visualPlan 只存 brief/caption/altText/imagePrompt。
+6. 不自动生成图片、不把二进制放数据库；视觉规划字段只存 brief/caption/altText/imagePrompt。
 7. 不接 Strapi/Cron、不调用 Flyfus MCP、不真实发布文章。
 8. migration 编号顺延（已到 010），用 `npm run db:migrate` 执行（schema_migrations 追踪）。
 9. 配置改动（config/ prompts/ schemas/）后运行 `npm run config:sync` 入库才生效。
+10. 模拟/回填数据必须使用 `--as-of-date YYYY-MM-DD`：`engine_runs.daily_key`、started/finished、业务表 created/updated 均落到对应模拟日，不做事后手工 SQL 回填。
 
 ## 常用命令
 
 ```bash
 npm run db:ping / db:migrate / db:list -- --with-scores
-npm run engine:daily [-- --mode retry|rebuild]      # 幂等：一天一个 active run
+npm run engine:daily [-- --mode retry|rebuild]      # 幂等：一天一个 active run，默认目标 5 篇 ready_for_review
+npm run engine:daily -- --as-of-date 2026-06-01 --dry-run
 npm run engine:batch -- --limit 1 --dry-run         # 改动后的回归检查
 npm run topic:audition -- --rounds 10 --limit 3     # 选题压力测试（不生成文章）
 npm run score:article-quality -- --status ready_for_review
@@ -48,7 +50,7 @@ npm run engine:report                                # 含 qualityOverview / por
 
 ## 当前 backlog（按优先级）
 
-1. **跑通第一篇质量合格文章**：存量两篇主评分 76 被拦；跑 `npm run sources:fix` 触发修订（会按 mustFix 差异化改写 + 自动补 visualPlan + 重评分），或走 engine:daily 生成新文验证全链路。
+1. **跑通第一篇质量合格文章**：存量两篇主评分 76 被拦；跑 `npm run sources:fix` 触发修订（会按 mustFix 差异化改写 + 自动补视觉规划 + 重评分），或走 engine:daily 生成新文验证全链路。
 2. 历史 source_items 分类回填剩余 ~970 条：`npm run content:classify -- --entity source_items --limit 500` 分批。
 3. 渠道改写支持单渠道重试（现在失败只能整批重跑）。
 4. 采集噪声治理：community_signals 的导航类条目（"Subscribe Now" 等）在 collect 阶段过滤超短标题。
@@ -62,4 +64,5 @@ npm run engine:report                                # 含 qualityOverview / por
 Viewer 只读以下数据形状，变更需在交付说明标注：
 - 表字段：articles / topic_candidates / topic_audition_* / article_quality_scores / content_classifications / workflow_* / publish_packages
 - `workflow_steps.step_key` 集合（监控台 7 步映射）
+- `engine_runs.summary_json` 的 targetReady / readyCount / attemptedJobs / qualityFailedCount / businessOutcome
 - `engine_reports.report_json` 的 qualityOverview / portfolioHealth 结构

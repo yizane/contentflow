@@ -46,6 +46,6 @@
 ## Phase 13 — Article Quality First & Visual Planning
 
 - 主评分（article_quality_evaluator，7 维）+ 终审门禁（pipeline gateReadyForReview / review_mark / Viewer 双守卫）；SEO/GEO 降为建议线。
-- visualPlan 进 schema（生成与修订必须输出 ≥2），validate_data_lib 校验占位引用/altText/截图占位不造假；旧文不强改，修订时自动补全。
+- 视觉规划字段进 schema（生成与修订必须输出 ≥2），validate_data_lib 校验占位引用/altText/截图占位不造假；旧文不强改，修订时自动补全。
 - 实证：两篇 95/86 质量门 + 88-95 SEO/GEO 的存量文章被主编评分打 76（重复 + 实操不足），全部被阻止通过终审——证明「SEO/GEO 不能覆盖质量不足」落地。
-- 已知边界：评分对加法有 ±5 容差（以维度和为准）；评分失败时门禁保守放行并写 warning（不让评分故障卡死流水线）。
+- 已知边界：评分对加法有 ±5 容差（以维度和为准）；评分失败时进入 `needs_quality_revision`，不得放行到终审。

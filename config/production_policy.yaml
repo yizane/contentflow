@@ -17,6 +17,21 @@ topic_generation:
   reject_if_slug_exists: true
   prefer_new_keyword_clusters: true
 
+topic_dedupe:
+  shadow_similarity_threshold: 0.75
+  defer_similarity_threshold: 0.55
+  penalty_similarity_threshold: 0.35
+  duplicate_defer_days: 14
+
+source_scope:
+  news_limit: 25
+  news_window_hours: 72
+  policy_limit: 15
+  policy_window_hours: 168
+  knowledge_limit: 40
+  knowledge_pool_limit: 120
+  knowledge_soft_expire_days: 90
+
 batch_limits:
   default_limit: 1
   max_limit_without_force: 5

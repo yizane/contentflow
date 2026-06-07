@@ -9,6 +9,8 @@
 | articles | 文章主记录（状态机） | — |
 | article_versions | 版本（v1/v2…） | **article_markdown** + article/quality/fact_check/source_resolution/seo/geo/dual JSON |
 | channel_outputs | 渠道稿 | **content_markdown** + content_json |
+
+`engine_runs.summary_json` 现在包含日产目标结果：`targetReady`、`maxAttempts`、`readyCount`、`attemptedJobs`、`qualityFailedCount`、`businessOutcome`（target_met / partial / no_ready_articles / technical_failed）。`articles_validated` 在 daily summary 中按 `ready_for_review` 数量回写。
 | publish_packages | 发布包全量 | readme/article markdown + 全部 JSON + channels_json |
 | quality_reports / fact_checks / source_resolutions / seo_geo_scores | 评审记录 | raw_json |
 | model_runs | OpenClaw 调用 | **task_prompt / raw_response**（内部数据） + parsed_output_json |
@@ -68,5 +70,5 @@ status 语义：`deferred` = 高分但近期主题饱和（窗口后回池，仍
 ## 文章质量主评分与视觉规划（migration 010）
 
 新增 `article_quality_scores`（每次评分一条：7 维细项 + recommendation + raw_json）。
-`article_versions` 增加 `article_quality_json` / `article_quality_score` / `visual_plan_json`；`articles` 增加 `article_quality_score` / `visual_plan_json`；`publish_packages` 增加 `visual_plan_json` / `article_quality_json`，metadata_json 含 articleQualityScore / visualPlanCount / requiredVisuals / hasVisualPlan。
+`article_versions` 增加 `article_quality_json` / `article_quality_score` / `visual_plan_json`；`articles` 增加 `article_quality_score` / `visual_plan_json`；`publish_packages` 增加 `visual_plan_json` / `article_quality_json`，metadata_json 含 articleQualityScore / 视觉规划数量 / 必需视觉项 / 是否有视觉规划。
 新文章状态 `needs_quality_revision`：主评分 < 80 被门禁拦下，修订后重评。

@@ -3,12 +3,27 @@
 const my = require('../lib/mysql_lib');
 const { runArticleJob } = require('../lib/pipeline_lib');
 
+function parseArgs(argv) {
+  const args = { limit: 20, includeFailed: false };
+  for (let i = 2; i < argv.length; i++) {
+    if (argv[i] === '--limit') args.limit = Math.max(1, Math.min(50, parseInt(argv[++i], 10) || 20));
+    else if (argv[i] === '--include-failed') args.includeFailed = true;
+  }
+  return args;
+}
+
 async function main() {
   const engineRunId = process.env.ENGINE_RUN_ID || null;
+  const args = parseArgs(process.argv);
   try {
-    const jobs = await my.query("SELECT * FROM article_jobs WHERE status IN ('pending', 'failed') ORDER BY created_at ASC LIMIT 20");
+    const statuses = args.includeFailed ? "'pending', 'failed'" : "'pending'";
+    const params = [];
+    let sql = `SELECT * FROM article_jobs WHERE status IN (${statuses})`;
+    if (engineRunId) { sql += ' AND engine_run_id = ?'; params.push(engineRunId); }
+    sql += ` ORDER BY created_at ASC LIMIT ${args.limit}`;
+    const jobs = await my.query(sql, params);
     if (jobs.length === 0) {
-      console.log(JSON.stringify({ ok: false, error: '没有 pending 的 article_jobs', hint: '先运行 npm run jobs:create' }, null, 2));
+      console.log(JSON.stringify({ ok: false, error: '没有待执行的 article_jobs', engineRunId, includeFailed: args.includeFailed, hint: '先运行 npm run jobs:create' }, null, 2));
       process.exitCode = 1;
       return;
     }

@@ -36,6 +36,7 @@ sources:
         type: "fetch_page"
         category: "official_policy"
         priority: "high"
+        lane: "policy"
         url: "https://sellercentral.amazon.com/news"
         requires_auth: true
         freshness: "policy_update"
@@ -50,6 +51,7 @@ sources:
         type: "fetch_page"
         category: "seller_forum"
         priority: "high"
+        lane: "policy"
         url: "https://sellercentral.amazon.com/seller-forums"
         requires_auth: false
         freshness: "breaking_news"
@@ -63,6 +65,7 @@ sources:
         type: "fetch_page"
         category: "amazon_ads"
         priority: "high"
+        lane: "policy"
         url: "https://advertising.amazon.com/blog"
         requires_auth: false
         freshness: "policy_update"
@@ -76,6 +79,7 @@ sources:
         type: "fetch_page"
         category: "amazon_ads"
         priority: "medium"
+        lane: "knowledge"
         url: "https://advertising.amazon.com/resources/library"
         requires_auth: false
         freshness: "policy_update"
@@ -88,6 +92,8 @@ sources:
         type: "fetch_page"
         category: "official_policy"
         priority: "high"
+        enabled: false
+        lane: "policy"
         url: "https://www.aboutamazon.com/news/retail/alexa-for-shopping-ai-assistant"
         site_url: "https://www.aboutamazon.com/news/retail/alexa-for-shopping-ai-assistant"
         language: "en"
@@ -104,6 +110,8 @@ sources:
         type: "fetch_page"
         category: "official_policy"
         priority: "high"
+        enabled: false
+        lane: "policy"
         url: "https://www.aboutamazon.com/news/retail/amazon-rufus"
         site_url: "https://www.aboutamazon.com/news/retail/amazon-rufus"
         language: "en"
@@ -119,6 +127,7 @@ sources:
         type: "rss"
         category: "amazon_corporate_news"
         priority: "medium"
+        lane: "policy"
         url: "https://www.aboutamazon.com/news/feed"
         site_url: "https://www.aboutamazon.com/news"
         requires_auth: false
@@ -137,6 +146,7 @@ sources:
         type: "atom"
         category: "marketplace_news"
         priority: "high"
+        lane: "news"
         url: "https://www.marketplacepulse.com/articles/recent.atom"
         site_url: "https://www.marketplacepulse.com/articles"
         requires_auth: false
@@ -154,6 +164,8 @@ sources:
         type: "rss"
         category: "retail_ecommerce_news"
         priority: "medium"
+        enabled: false
+        lane: "news"
         url: "https://www.retaildive.com/feeds/news/"
         site_url: "https://www.retaildive.com/"
         requires_auth: false
@@ -167,6 +179,8 @@ sources:
         type: "discover_feed_or_fetch"
         category: "retail_ecommerce_news"
         priority: "medium"
+        enabled: false
+        lane: "news"
         url: "https://www.modernretail.co/"
         requires_auth: false
         freshness: "breaking_news"
@@ -179,6 +193,8 @@ sources:
         type: "discover_feed_or_fetch"
         category: "retail_ecommerce_news"
         priority: "medium"
+        enabled: false
+        lane: "news"
         url: "https://www.digitalcommerce360.com/"
         requires_auth: false
         freshness: "breaking_news"
@@ -191,6 +207,8 @@ sources:
         type: "rss"
         category: "marketplace_news"
         priority: "medium"
+        enabled: false
+        lane: "news"
         url: "https://www.ecommercebytes.com/feed/"
         site_url: "https://www.ecommercebytes.com/"
         requires_auth: false
@@ -211,6 +229,7 @@ sources:
         type: "atom"
         category: "official_search"
         priority: "high"
+        lane: "policy"
         url: "https://developers.google.com/search/blog/atom.xml"
         site_url: "https://developers.google.com/search/blog"
         requires_auth: false
@@ -225,6 +244,8 @@ sources:
         type: "rss"
         category: "seo_news"
         priority: "high"
+        enabled: false
+        lane: "news"
         url: "https://searchengineland.com/feed"
         site_url: "https://searchengineland.com/"
         requires_auth: false
@@ -239,6 +260,7 @@ sources:
         type: "rss"
         category: "seo_news"
         priority: "high"
+        lane: "knowledge"
         url: "https://www.searchenginejournal.com/feed/"
         site_url: "https://www.searchenginejournal.com/"
         requires_auth: false
@@ -253,6 +275,7 @@ sources:
         type: "rss"
         category: "seo_news"
         priority: "high"
+        lane: "news"
         url: "https://www.seroundtable.com/index.rdf"
         site_url: "https://www.seroundtable.com/"
         requires_auth: false
@@ -267,6 +290,7 @@ sources:
         type: "discover_feed_or_fetch"
         category: "ai_search_geo"
         priority: "medium"
+        lane: "knowledge"
         url: "https://blog.google/technology/ai/"
         requires_auth: false
         freshness: "policy_update"
@@ -280,6 +304,7 @@ sources:
         type: "discover_feed_or_fetch"
         category: "ai_search_geo"
         priority: "medium"
+        lane: "knowledge"
         url: "https://www.perplexity.ai/hub/blog"
         requires_auth: false
         freshness: "policy_update"
@@ -296,6 +321,7 @@ sources:
         type: "discover_feed_or_fetch"
         category: "seller_tool_blog"
         priority: "medium"
+        lane: "knowledge"
         url: "https://www.junglescout.com/blog/"
         requires_auth: false
         freshness: "evergreen_blog"
@@ -308,6 +334,7 @@ sources:
         type: "discover_feed_or_fetch"
         category: "seller_tool_blog"
         priority: "medium"
+        lane: "knowledge"
         url: "https://www.helium10.com/blog/"
         requires_auth: false
         freshness: "evergreen_blog"
@@ -321,6 +348,7 @@ sources:
         type: "rss"
         category: "seller_tool_blog"
         priority: "low"
+        lane: "knowledge"
         url: "https://www.sellerapp.com/blog/feed/"
         site_url: "https://www.sellerapp.com/blog/"
         requires_auth: false
@@ -338,6 +366,7 @@ sources:
         type: "rss"
         category: "amazon_ads"
         priority: "medium"
+        lane: "knowledge"
         url: "https://www.teikametrics.com/feed/"
         site_url: "https://www.teikametrics.com/blog/"
         requires_auth: false
@@ -355,6 +384,7 @@ sources:
         type: "rss"
         category: "amazon_ads"
         priority: "medium"
+        lane: "knowledge"
         url: "https://www.adbadger.com/feed/"
         site_url: "https://www.adbadger.com/blog/"
         requires_auth: false
@@ -372,6 +402,7 @@ sources:
         type: "rss"
         category: "amazon_ads"
         priority: "medium"
+        lane: "knowledge"
         url: "https://www.intentwise.com/blog/feed/"
         site_url: "https://www.intentwise.com/blog/"
         requires_auth: false
@@ -392,6 +423,8 @@ sources:
         type: "rss"
         category: "seller_community"
         priority: "medium"
+        enabled: false
+        lane: "news"
         url: "https://www.reddit.com/r/FulfillmentByAmazon/.rss"
         site_url: "https://www.reddit.com/r/FulfillmentByAmazon/"
         requires_auth: false
@@ -406,6 +439,8 @@ sources:
         type: "rss"
         category: "seller_community"
         priority: "medium"
+        enabled: false
+        lane: "news"
         url: "https://www.reddit.com/r/AmazonSeller/.rss"
         site_url: "https://www.reddit.com/r/AmazonSeller/"
         requires_auth: false
@@ -423,6 +458,8 @@ sources:
         type: "fetch_page"
         category: "chinese_crossborder_news"
         priority: "high"
+        enabled: false
+        lane: "news"
         url: "https://www.amz123.com/t/"
         site_url: "https://www.amz123.com/t/"
         language: "zh-CN"
@@ -439,6 +476,8 @@ sources:
         type: "fetch_page"
         category: "chinese_crossborder_news"
         priority: "high"
+        enabled: false
+        lane: "news"
         url: "https://www.amz123.com/zb"
         site_url: "https://www.amz123.com/zb"
         language: "zh-CN"
@@ -454,6 +493,7 @@ sources:
         type: "fetch_page"
         category: "chinese_crossborder_news"
         priority: "high"
+        lane: "news"
         url: "https://www.amz123.com/kx"
         site_url: "https://www.amz123.com/kx"
         language: "zh-CN"
@@ -470,6 +510,7 @@ sources:
         type: "fetch_page"
         category: "chinese_crossborder_report"
         priority: "medium"
+        lane: "knowledge"
         url: "https://www.amz123.com/report"
         site_url: "https://www.amz123.com/report"
         language: "zh-CN"
@@ -486,6 +527,8 @@ sources:
         type: "discover_feed_or_fetch"
         category: "chinese_crossborder_news"
         priority: "high"
+        enabled: false
+        lane: "news"
         url: "https://www.cifnews.com/"
         site_url: "https://www.cifnews.com/"
         language: "zh-CN"
@@ -502,6 +545,8 @@ sources:
         type: "discover_feed_or_fetch"
         category: "chinese_crossborder_news"
         priority: "medium"
+        enabled: false
+        lane: "news"
         url: "https://www.cifnews.com/rss"
         site_url: "https://www.cifnews.com/"
         language: "zh-CN"
@@ -516,6 +561,8 @@ sources:
         type: "discover_feed_or_fetch"
         category: "chinese_crossborder_news"
         priority: "medium"
+        enabled: false
+        lane: "news"
         url: "https://www.ennews.com/"
         site_url: "https://www.ennews.com/"
         language: "zh-CN"
@@ -532,6 +579,8 @@ sources:
         type: "discover_feed_or_fetch"
         category: "chinese_crossborder_news"
         priority: "medium"
+        enabled: false
+        lane: "news"
         url: "https://mjzj.com/"
         site_url: "https://mjzj.com/"
         language: "zh-CN"
@@ -548,6 +597,8 @@ sources:
         type: "discover_feed_or_fetch"
         category: "chinese_crossborder_news"
         priority: "medium"
+        enabled: false
+        lane: "news"
         url: "https://www.ikjzd.com/"
         site_url: "https://www.ikjzd.com/"
         language: "zh-CN"
@@ -563,6 +614,8 @@ sources:
         type: "discover_feed_or_fetch"
         category: "chinese_crossborder_news"
         priority: "low"
+        enabled: false
+        lane: "news"
         url: "https://kuajing.baijing.cn/"
         site_url: "https://kuajing.baijing.cn/"
         language: "zh-CN"
@@ -582,6 +635,8 @@ sources:
         type: "search_query"
         category: "amazon_rufus"
         priority: "high"
+        lane: "news"
+        daily_query_enabled: true
         query: "Amazon Rufus seller OR marketplace OR listing"
         freshness: "breaking_news"
         use_case:
@@ -593,6 +648,9 @@ sources:
         type: "search_query"
         category: "amazon_rufus"
         priority: "high"
+        enabled: false
+        lane: "news"
+        daily_query_enabled: false
         query: "\"Researched by AI\" Amazon seller"
         freshness: "breaking_news"
         use_case:
@@ -603,6 +661,9 @@ sources:
         type: "search_query"
         category: "amazon_rufus"
         priority: "high"
+        enabled: false
+        lane: "news"
+        daily_query_enabled: false
         query: "Amazon COSMO algorithm product search"
         freshness: "policy_update"
         use_case:
@@ -614,6 +675,8 @@ sources:
         type: "search_query"
         category: "ai_search_geo"
         priority: "high"
+        lane: "news"
+        daily_query_enabled: true
         query: "Google AI Overview SEO visibility citation"
         freshness: "breaking_news"
         use_case:
@@ -625,6 +688,8 @@ sources:
         type: "search_query"
         category: "official_policy"
         priority: "high"
+        lane: "news"
+        daily_query_enabled: true
         query: "Amazon seller policy update FBA fee listing requirement"
         freshness: "breaking_news"
         use_case:
@@ -636,6 +701,9 @@ sources:
         type: "search_query"
         category: "amazon_ads"
         priority: "medium"
+        enabled: false
+        lane: "news"
+        daily_query_enabled: false
         query: "Amazon PPC ACoS CPC trend seller advertising"
         freshness: "policy_update"
         use_case:

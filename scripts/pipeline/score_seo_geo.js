@@ -25,7 +25,13 @@ async function main() {
   }
   const engineRunId = process.env.ENGINE_RUN_ID || null;
   try {
-    const articles = await my.findArticles({ articleId: args.articleId, slug: args.slug, status: args.status || (args.articleId || args.slug ? null : 'ready_for_review'), limit: args.limit });
+    let articles;
+    const status = args.status || (args.articleId || args.slug ? null : 'ready_for_review');
+    if (engineRunId && status && !args.articleId && !args.slug) {
+      articles = await my.query(`SELECT * FROM articles WHERE status = ? AND engine_run_id = ? ORDER BY created_at DESC LIMIT ${Math.max(1, Math.min(100, args.limit))}`, [status, engineRunId]);
+    } else {
+      articles = await my.findArticles({ articleId: args.articleId, slug: args.slug, status, limit: args.limit });
+    }
     if (articles.length === 0) {
       console.log(JSON.stringify({ ok: true, scored: 0, message: '没有匹配的文章' }, null, 2));
       return;

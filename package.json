@@ -4,6 +4,7 @@
   "private": true,
   "description": "Flyfus SEO/GEO content generation engine — MySQL-only runtime, OpenClaw execution layer, local read-only Viewer. Web project integrates via MySQL only.",
   "scripts": {
+    "test": "node --test",
     "db:ping": "node scripts/tools/db_ping.js",
     "db:init": "node scripts/tools/db_init.js",
     "db:migrate": "node scripts/tools/db_migrate.js",
@@ -15,6 +16,7 @@
     "sources:collect": "node scripts/pipeline/sources_collect.js",
     "sources:check": "node scripts/tools/sources_check.js",
     "sources:fix": "node scripts/pipeline/sources_fix.js",
+    "sources:backfill-canonical": "node scripts/tools/backfill_canonical_sources.js",
     "sources:resolve": "node scripts/pipeline/sources_resolve.js",
     "topics:generate": "node scripts/pipeline/topics_generate.js",
     "jobs:create": "node scripts/pipeline/jobs_create.js",

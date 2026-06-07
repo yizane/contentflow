@@ -193,10 +193,62 @@
       gap: 16px;
     }
 
+    .step-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .step-card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fbfdff;
+      padding: 14px 15px;
+    }
+
+    .step-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      color: var(--ink);
+      font-weight: 800;
+    }
+
+    .step-no {
+      display: inline-grid;
+      place-items: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: #e9f1ff;
+      color: var(--blue);
+      font-size: 13px;
+      line-height: 1;
+      border: 1px solid #bfd1fa;
+      flex: 0 0 auto;
+    }
+
+    .step-line {
+      display: grid;
+      grid-template-columns: 58px 1fr;
+      gap: 8px;
+      margin-top: 5px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .step-line b {
+      color: #304055;
+      font-weight: 750;
+    }
+
     @media (max-width: 860px) {
       .page { width: calc(100vw - 20px); margin-top: 10px; }
       header, .card { padding: 18px; border-radius: 12px; }
       .two-col { grid-template-columns: 1fr; }
+      .step-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -391,6 +443,66 @@
         <span><i class="dot" style="background: var(--green)"></i>纯规则处理</span>
         <span><i class="dot" style="background: var(--blue)"></i>MySQL 中间结果</span>
         <span><i class="dot" style="background: var(--red)"></i>补源/模型调用等高风险信息</span>
+      </div>
+
+      <h3>主链路 1-8 做了什么</h3>
+      <div class="step-grid">
+        <div class="step-card">
+          <div class="step-head"><span class="step-no">1</span>采集来源</div>
+          <div class="step-line"><b>做什么</b><span>从已启用的数据源抓取当天材料。</span></div>
+          <div class="step-line"><b>怎么做</b><span>RSS/API/网页规则采集；搜索类源才调用 OpenClaw。</span></div>
+          <div class="step-line"><b>写入</b><span><code>source_items</code>、采集日志、内容分类。</span></div>
+          <div class="step-line"><b>用途</b><span>给主题生成提供可追溯素材。</span></div>
+        </div>
+        <div class="step-card">
+          <div class="step-head"><span class="step-no">2</span>生成主题池</div>
+          <div class="step-line"><b>做什么</b><span>把来源材料提炼成候选主题。</span></div>
+          <div class="step-line"><b>怎么做</b><span>把 source、关键词、近期已写主题组装给 OpenClaw。</span></div>
+          <div class="step-line"><b>写入</b><span><code>topic_candidates</code>、<code>model_runs</code>。</span></div>
+          <div class="step-line"><b>把关</b><span>校验 JSON、主题分类、来源 URL、重复和关键词节流。</span></div>
+        </div>
+        <div class="step-card">
+          <div class="step-head"><span class="step-no">3</span>创建文章任务</div>
+          <div class="step-line"><b>做什么</b><span>从候选主题里选出今天要写的题。</span></div>
+          <div class="step-line"><b>怎么做</b><span>按分数、来源支撑、分类配额、重复风险做组合选择。</span></div>
+          <div class="step-line"><b>写入</b><span><code>article_jobs</code> 和状态流转记录。</span></div>
+          <div class="step-line"><b>结果</b><span>入选主题变成待执行写作任务。</span></div>
+        </div>
+        <div class="step-card">
+          <div class="step-head"><span class="step-no">4</span>生成文章</div>
+          <div class="step-line"><b>做什么</b><span>根据文章任务生成正文和结构化文章 JSON。</span></div>
+          <div class="step-line"><b>怎么做</b><span>OpenClaw 按策略写稿，本地校验字段和质量报告。</span></div>
+          <div class="step-line"><b>写入</b><span><code>articles</code>、<code>article_versions</code>、<code>quality_reports</code>。</span></div>
+          <div class="step-line"><b>失败</b><span>模型输出不合格会重试；仍失败则任务标记失败。</span></div>
+        </div>
+        <div class="step-card">
+          <div class="step-head"><span class="step-no">5</span>事实核查</div>
+          <div class="step-line"><b>做什么</b><span>检查文章里的事实、数字、结论和来源支撑。</span></div>
+          <div class="step-line"><b>怎么做</b><span>OpenClaw 输出风险等级、缺来源点和必须修复项。</span></div>
+          <div class="step-line"><b>写入</b><span><code>fact_checks</code>、<code>source_resolutions</code>。</span></div>
+          <div class="step-line"><b>结果</b><span>文章进入待审、待补来源或事实核查失败。</span></div>
+        </div>
+        <div class="step-card">
+          <div class="step-head"><span class="step-no">6</span>补来源与修订</div>
+          <div class="step-line"><b>做什么</b><span>修复事实核查指出的缺来源和高风险表达。</span></div>
+          <div class="step-line"><b>怎么做</b><span>补权威来源、改写局部内容，再重新核查。</span></div>
+          <div class="step-line"><b>写入</b><span>新版 <code>article_versions</code> 和补源记录。</span></div>
+          <div class="step-line"><b>边界</b><span>多轮仍不收敛时转人工，不硬推通过。</span></div>
+        </div>
+        <div class="step-card">
+          <div class="step-head"><span class="step-no">7</span>渠道改写</div>
+          <div class="step-line"><b>做什么</b><span>把已就绪文章改写成渠道稿。</span></div>
+          <div class="step-line"><b>怎么做</b><span>按公众号、抖音、小红书的结构分别生成。</span></div>
+          <div class="step-line"><b>写入</b><span><code>channel_outputs</code>。</span></div>
+          <div class="step-line"><b>把关</b><span>检查渠道结构、禁词和必要字段。</span></div>
+        </div>
+        <div class="step-card">
+          <div class="step-head"><span class="step-no">8</span>SEO/GEO 评分</div>
+          <div class="step-line"><b>做什么</b><span>给文章做搜索和 AI 引用友好度评估。</span></div>
+          <div class="step-line"><b>怎么做</b><span>OpenClaw 输出 SEO、GEO、事实分、业务契合度和可读性。</span></div>
+          <div class="step-line"><b>写入</b><span><code>seo_geo_scores</code> 和文章分数字段。</span></div>
+          <div class="step-line"><b>用途</b><span>辅助终审和优化方向，不覆盖文章质量主门禁。</span></div>
+        </div>
       </div>
     </section>
 
