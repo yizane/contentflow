@@ -1,0 +1,17 @@
+{
+  "name": "contentflow-viewer",
+  "version": "1.0.0-rc.1",
+  "private": true,
+  "description": "ContentFlow 本地 Viewer — 只读 MySQL 调试台（public/ 前端 + server.js API），workflow 在 workflow_py/（Python）",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && for f in lib/*.js; do node --check \"$f\" || exit 1; done"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "mysql2": "^3.22.4"
+  }
+}

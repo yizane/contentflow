@@ -7,37 +7,15 @@ generation_strategies:
     - seo_first
     - geo_first
 
-# 当前单模型；多模型并行生成为 P2 TODO（架构已预留：每个 task_type 一个数组，enabled 控制启用）。
+# 当前单模型；每个 task_type 保持数组形状，便于后续按真实实现扩展。
 
 # ---- 执行器（providers）----
-# 任务节点（task_type）可路由到不同执行器：本地 CLI 或远程 API。
-# 当前生产路径 = openclaw_cli；其余为预留能力（enabled: false），配置好即可启用：
-#   codex_cli / claude_cli：本地 CLI（实验性，未在生产验证）
-#   openai_api：任何 OpenAI 兼容 /chat/completions 服务（OpenAI/DeepSeek/vLLM/Ollama…）
-#   openclaw_gateway：远程 OpenClaw 网关（协议待定，仅占位）
+# 当前已实现生产路径 = openclaw_cli。
 providers:
   openclaw_cli:
     type: cli
     command: openclaw
     enabled: true
-  codex_cli:
-    type: cli
-    command: codex
-    enabled: false
-  claude_cli:
-    type: cli
-    command: claude
-    enabled: false
-  openai_api:
-    type: openai_http
-    base_url: https://api.openai.com/v1
-    api_key_env: OPENAI_API_KEY
-    enabled: false
-  openclaw_gateway:
-    type: gateway
-    base_url: ""
-    api_key_env: OPENCLAW_GATEWAY_TOKEN
-    enabled: false
 
 default:
   provider: openclaw_cli

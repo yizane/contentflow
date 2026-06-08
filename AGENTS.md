@@ -1,85 +1,113 @@
-# AGENTS.md — Codex 工作指南（flyfus-content-agent）
+# AGENTS.md
 
-> 你（Codex）负责 **workflow 侧**（内容生产流水线/引擎/工具/库）的后续开发。
-> **Viewer 侧由 Claude 负责**：`scripts/view_server.js`、`scripts/lib/ui_api_lib.js`、`webpage/` 三处**不要改**；
-> 如果 workflow 改动影响这三处依赖的数据形状（表结构/字段语义/step_key），在交付说明里明确标注，由 Viewer 侧跟进适配。
-> 详细交接文档见 `docs/17_workflow_handoff.md`，开发约定见 `docs/07_development.md`。
+> 本文件为本项目的 AI 编程助手协作约定。支持 AGENTS.md 的工具会自动读取。
+> 内容保持「少而精」：只写 AI 容易忽略的、本项目长期有效的规则；踩坑后再增量补充。
 
-## 系统一句话
+## 项目上下文
 
-MySQL-only 内容生产引擎：采集 → 选题（组合平衡 + 价值评分）→ 生成 → 事实核查/补源修订 → 渠道改写 → SEO/GEO 评分 → 发布包 → 人工终审。模型调用经 `scripts/lib/providers/` 抽象层（生产路径 openclaw_cli）。
+> 这一段是整份文件里最该认真填的部分：它是 AI 猜不到、却最影响产出的信息。
+> 请用你项目的真实情况替换下面的占位符，删掉用不到的行。不要保留不属于本项目的描述。
 
-## 目录与命名（严格遵守）
+- 项目是什么：<一句话说明本项目做什么>
+- 主要技术栈：<语言 / 框架，如 TypeScript / Node.js>
+- 持久化：<数据库或存储方式；若无可删>
+- 主要入口：<如 src/index.ts>
+- 运行命令：<如 npm run dev>
+- 测试 / 检查命令：<如 npm test、npm run lint>
+- 不要改动的目录或已废弃的方案：<如 legacy/、old-scripts/>
+- 改动前必须先读：README、docs、package.json、相关 src 目录和脚本。
 
-```
-scripts/
-├── pipeline/   # 工作流步骤 CLI，命名 域_动作.js ↔ npm 域:动作（jobs_run.js ↔ jobs:run）
-├── tools/      # 人工运维命令（db_*/config_sync/sources_check/keywords_analyze）
-├── lib/        # 内部库 *_lib.js + providers/；ROOT = path.resolve(__dirname,'..','..')
-└── engine_daily / engine_batch / engine_report / view_server（编排与服务）
-```
+## 沟通原则
 
-- 不留旧命名别名；`workflow_steps.step_key` 与文件名同一套命名（改名要写数据迁移）。
-- 一次性检查/调试**不要**加脚本——用临时 `node -e`；tools/ 必须有被流水线/文档/运维引用的理由。
+- 与用户沟通、解释代码、输出计划和总结时，使用简体中文。
+- 解释代码要说人话，少用黑话；必要时用 mermaid 图说明流程。
+- 实现复杂功能或架构调整前，先说明核心原理、执行步骤和影响范围；小改动可直接给出简短计划。
 
-## 硬性红线
+## 工作流约定
 
-1. **MySQL 是唯一运行时数据源**：不落本地 output 文件、不 fallback SQLite、所有结果/trace/决策写库。
-2. **不破坏** `engine:daily` / `engine:batch` / Run Control / Viewer；改动后必跑 `node scripts/engine_batch.js --limit 1 --dry-run`。
-3. **质量优先级**：article_quality_score（主评分）>= 80 才能进 ready_for_review > 事实可靠性是底线 > SEO/GEO 只是建议线，永远不能覆盖前两者。
-4. **选题语义**：高分但近期主题饱和 → `deferred`（带 deferred_until，窗口后回池）；`rejected` 仅用于低质/高风险/无业务价值。
-5. **分类体系**：source_group（来源）≠ content_type/business_category/topic_cluster（内容三层分类，config/content_taxonomy.yaml）。
-6. 不自动生成图片、不把二进制放数据库；视觉规划只存说明、图注、替代文本、生图提示等规划信息。
-7. 不接 Strapi/Cron、不调用 Flyfus MCP、不真实发布文章。
-8. migration 编号顺延（已到 011），用 `npm run db:migrate` 执行（schema_migrations 追踪）。
-9. 配置改动（config/ prompts/ schemas/）后运行 `npm run config:sync` 入库才生效。
+- 不要一上来就写代码。先理解需求，再阅读相关代码，再给出实现计划。
+- 改动前至少阅读：入口文件、被修改文件、直接调用方、直接依赖方、相关测试或日志。
+- 每次实现前先说明：
+  1. 需求理解
+  2. 涉及文件
+  3. 实现方案
+  4. 复用已有能力的检查结果
+  5. 可能风险
+  6. 验证方式
+- 仅修改与当前请求直接相关的代码，避免无关重构、无关格式化和无关功能调整。
+- 改完后必须自检：是否真正解决问题，是否影响旧逻辑，是否需要补测试或更新文档。
 
-## 常用命令
+## 代码原则
 
-```bash
-npm run db:ping / db:migrate / db:list -- --with-scores
-npm run engine:daily [-- --mode retry|rebuild]      # 幂等：一天一个 active run
-npm run engine:batch -- --limit 1 --dry-run         # 改动后的回归检查
-npm run topic:audition -- --rounds 10 --limit 3     # 选题压力测试（不生成文章）
-npm run score:article-quality -- --status ready_for_review
-npm run keywords:analyze / sources:check / config:sync
-npm run engine:report                                # 含 qualityOverview / portfolioHealth
-```
+### 简洁优先
 
-## 当前 backlog（按优先级）
+- 遵守 KISS / YAGNI：只实现当前明确需要的功能，不添加预测性功能。
+- 能用简单方案解决，就不要为了“设计模式”增加抽象层。
+- 新增抽象、封装或设计模式前，必须说明为什么现有简单结构不够用。
 
-1. **跑通第一篇质量合格文章**：存量两篇主评分 76 被拦；跑 `npm run sources:fix` 触发修订（会按 mustFix 差异化改写 + 自动补视觉规划 + 重评分），或走 engine:daily 生成新文验证全链路。
-2. 历史 source_items 分类回填剩余 ~970 条：`npm run content:classify -- --entity source_items --limit 500` 分批。
-3. 渠道改写支持单渠道重试（现在失败只能整批重跑）。
-4. 采集噪声治理：community_signals 的导航类条目（"Subscribe Now" 等）在 collect 阶段过滤超短标题。
-5. brand_growth / ai_tools / marketplace_policy 候选为 0：补 1-2 个站外营销/工具类采集源（sources.yaml），不是关键词问题。
-6. `--strategies` 同题多策略并行生成（jobs_create 里 P2 TODO）。
-7. providers/openclaw_gateway 协议确定后实现；codex_cli/claude_cli 执行器标实验性待验证。
-8. deferred 候选到期回池后的自动复检节奏（目前依赖下次 jobs:create 触发）。
-9. **新闻快讯断层**：source_items 里 news_flash 有 50 条，但 topic_candidates 里 news_flash≈0、
-   articles 里为 0——新闻类资讯采进来了却几乎不产出主题。确认是 topic_generator prompt 偏好
-   还是选题打分压制，属于结构性偏置（参照 12B 的主动报告要求）。
-10. **选题来源线索的引用纪律**：topic_generator 输出的 sourceUrls 有时挂弱相关引用
-   （例：广告结构主题挂 teikametrics+searchengineland+跨境媒体三个不相干 URL）。
-   prompt 应要求 sourceUrls 仅引用「直接支撑该主题事实」的输入素材，宁缺勿滥——
-   Viewer 已按主题展示来源 chips，弱引用会被用户直接看到。
-11. **来源业务分类与候选业务分类一致性**：当前已拦非亚马逊电商来源，但还需避免用“类目热销榜”
-   支撑 PPC/广告结构等弱相关选题；应在 topic_generation 后增加 source-category 对 candidate-category
-   的二级守门。
-12. **选题只基于标题+150字摘要，素材正文从未入库**（06-07 实测）：source_items.content_text
-   全库 0 条有内容；topicGenerationPrompt 每条素材只给 标题+url+summary 前 150 字+分类。
-   后果：a) 选题分实质是「标题潜力分」，高分题正文撑不起来（90+ 题 → 主评分 76 的案例）；
-   b) 引用纪律松（AI 没读过内容只能按标题猜相关）。评估：采集存正文或加长摘要、
-   或 topicgen 阶段允许 web_fetch 验证 top 候选。
+### 命名清晰
 
-## 与 Viewer 的契约
+- 文件名、函数名、变量名、模块名必须表达真实用途。
+- 避免使用 process、handle、data、helper、common、utils 这类模糊命名，除非上下文非常明确。
+- 函数名应体现动作和对象，例如 `createOrderFromCart`、`validateUserInput`、`saveDraftVersion`。
 
-Viewer 只读以下数据形状，变更需在交付说明标注：
-- **模拟/回填数据的时间戳契约（重要）**：模拟「最近 N 天」的数据生成时，每条数据的 `created_at`
-  （source_items / topic_candidates / articles / article_versions / fact_checks / channel_outputs /
-  status_transitions / workflow_events）和 `engine_runs.daily_key` + `started_at/finished_at`
-  **必须回填到对应的模拟日**，不能全部落在执行当天——Viewer 的「生产日报」按天聚合
-  （`/api/ui/days`、`/api/ui/day/:date`），时间戳糊在一天会让按天调试失效。
-- 表字段：articles / topic_candidates / topic_audition_* / article_quality_scores / content_classifications / workflow_* / publish_packages
-- `workflow_steps.step_key` 集合（监控台 7 步映射）
-- `engine_reports.report_json` 的 qualityOverview / portfolioHealth 结构
+### 复用优先
+
+- 新增代码前必须先检查项目内是否已有类似实现。
+- 优先复用已有模块、公共函数、成熟第三方库和框架内置能力。
+- 不要重复实现通用能力，例如日志、配置读取、HTTP 请求、Schema 校验、重试、日期处理、数据库访问等。
+
+### 职责单一
+
+- 一个函数只做一件明确的事。
+- 一个文件只负责一类职责。
+- 业务流程、数据访问、外部 API 调用、数据校验不要混在同一个函数里。
+- 不要把业务逻辑塞进 utils。
+
+## 架构约定
+
+- 动态语言文件超过 300 行时，需要评估是否拆分。
+- 静态语言文件超过 400 行时，需要评估是否拆分。
+- 单个目录文件过多时，按业务领域或职责规划子目录，不要为了凑数量而拆分。
+- 时刻警惕以下坏味道：逻辑重复、巨型函数、巨型文件、循环依赖、职责混乱、数据结构不清晰、牵一发动全身、为未来需求过度设计。
+- 如果发现坏味道影响当前任务，应先说明问题和优化建议；不要擅自做大范围重构。
+
+## 配置约定
+
+- 禁止硬编码 API Key、连接串、模型名称、文件路径、超时时间、重试次数、阈值、白名单、黑名单和功能开关。
+- 配置应统一从配置文件、环境变量或项目已有 config 模块读取。
+
+## 错误处理与日志
+
+- 错误信息必须能定位问题，至少包含失败阶段、处理对象和原始错误原因。
+- 不要只返回 failed、error、something went wrong 这类无意义错误。
+- 复杂流程必须有阶段日志，包含开始、结束、数量、耗时、状态和错误原因。
+- 日志要帮助排查问题，不要输出无意义噪音。
+
+## 测试与验证
+
+- 改完代码后必须说明：修改了哪些文件、为什么这样改、如何验证。
+- 能运行测试就必须运行；不能运行时，说明原因，并给出手动验证步骤。
+- 优先补充或更新测试。
+- 至少考虑：正常流程、空数据、异常输入、外部服务失败等情况。
+
+## 文档同步
+
+如果改动影响以下内容，必须同步更新文档：启动方式、配置项、API 参数、返回结构、目录结构、运行流程、部署方式。
+
+## 终端命令
+
+- 执行终端命令时默认一条一条执行，一条完成并确认结果后再执行下一条。
+- 避免使用 `&&` 串联多条命令，尤其是安装、删除、迁移、格式化、批量修改等高风险操作。
+- 执行破坏性命令前必须说明目的和影响范围。
+
+## 数据库约定
+
+- 涉及数据库结构变更时，必须通过正式 migration，不要直接写临时 SQL 改表。
+- 涉及数据结构、接口返回时，必须先明确字段、类型、必填项、默认值和校验规则。
+
+## LLM 输出约定
+
+- 不要直接信任模型输出。所有 LLM 输出必须经过解析、Schema 校验和业务规则检查后再使用。
+- Prompt 构造、模型调用、结果解析、结果校验、结果保存应尽量分离。
+- 不要静默降级结构化输出要求；如需降级，必须说明原因和影响。必要时保留 raw response 便于排查。

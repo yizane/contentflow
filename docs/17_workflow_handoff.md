@@ -1,70 +1,51 @@
-# 17 — Workflow 开发交接（Claude → Codex）
+# 17 — Workflow Handoff
 
-> 自此文档起：**workflow 侧（流水线/引擎/库/工具/prompts/schemas/migrations）由 Codex 开发**；
-> **Viewer 侧（view_server.js / ui_api_lib.js / webpage/）由 Claude 开发**。
-> Codex 的运行时指南在仓库根 `AGENTS.md`（Codex CLI 自动加载）。
+当前状态：workflow 已从 Node 迁移到 Python。Node workflow、Node pipeline、Node graph runner、Node provider 和 root npm 兼容入口已删除。
 
-## 一、已完成的演进（Phase 11 → 13）
+## 分工边界
 
-| Phase | 内容 | 关键产物 |
+| 范围 | 负责 | 说明 |
 |---|---|---|
-| 11 | Daily Run Control | run_control_lib：一天一个 active run，start/retry/rebuild/force |
-| 12 | 内容三层分类 | content_taxonomy.yaml、classify_lib（规则+AI）、content_classifications 审计、migration 006/007 |
-| 12（重构） | scripts 三层目录 + providers | pipeline/tools/lib、域_动作命名、模型执行器抽象（openclaw_cli 生产 + 4 预留） |
-| 12B | Topic Portfolio Balancer | content_portfolio.yaml、selection_score、deferred 语义、关键词库 50→114、migration 008 |
-| 12D | 选题压力测试 + 价值评分 | content_value_score（6 维）、topic:audition 模拟器、migration 009 |
-| 13 | 文章质量主评分 + 视觉规划 | article_quality_score（7 维，>=80 门禁）、视觉规划字段、migration 010 |
-| 14 | 日产目标与模拟回填 | `--target-ready 5`、`--as-of-date` 统一时间、retry 先复用、channels 当前版本 |
+| Workflow | Codex | `workflow_py/`、`config/`、`prompts/`、`schemas/`、`db/`、workflow docs |
+| Viewer | Claude/用户指定 | `webpage/` |
 
-## 二、核心心智模型
+Viewer / Web 触发 workflow 时直接执行 Python CLI：`uv run contentflow ...`。
 
-1. **三个评分各司其职**：
-   - `content_value_score`（选题阶段）：这个题值不值得写
-   - `article_quality_score`（成文阶段，主评分）：写出来的文章好不好——**唯一的终审门禁**
-   - SEO/GEO（辅助）：好文章更容易被发现的手段，< 70 给建议，永不拦发布
-2. **选题不是分数最高者胜**：selection = cv×0.55 + raw×0.25 + 组合奖惩；主题簇/分类硬配额优先于任何分数。
-3. **deferred ≠ rejected**：时间窗问题（饱和/重复/来源弱）→ deferred 回池；质量问题 → rejected/低价值留池。
-4. **一切决策可解释且入库**：portfolio_debug_json、selection_skip_reason、workflow_events、audition 表——Viewer 靠这些讲「为什么」。
-5. **日产目标是 ready 文章数**：默认 5 篇 `ready_for_review`；质量失败进入 `needs_quality_revision` 并补位，不重跑采集/选题。
+## 当前 Python 能力
 
-## 三、踩过的坑（别再踩）
+- batch/daily 编排与 daily run control
+- source collection：HTTP/RSS/page、AMZ123 API、canonical ingest、source observations
+- topic generation：source scope、正文片段输入、dedupe、source relevance
+- portfolio balancer：selection_score、quota、deferred、debug json
+- article generation、factcheck、source resolve/fix、revision
+- SEO/GEO score、article quality score
+- channels、package export、review mark
+- content classify、topic audition、engine report
+- db ping/init/migrate/list/show、sources check、keywords analyze、config sync
 
-1. **时区**：DB DATETIME 是本地时间，`new Date().toISOString()` 是 UTC；服务端比较「今天」必须用 `rc.getDailyKey(new Date(v))`，不能 `slice(0,10)`。
-2. **lib 移动目录后 ROOT 错位**：`path.resolve(__dirname, '..')` 类代码在移动文件时必须同步改层级。
-3. **AI 输出加法误差**：维度和与总分允许 ±5，以维度和为准（validate_data_lib 已处理，新评分类输出照抄此模式）。
-4. **python replace 全局替换**：同形代码片段在多个函数出现时会误注入（ui_api_lib 出过 aqRow 事故），改代码用唯一锚点。
-5. **dry-run 必须关连接池**，否则进程不退出（engine_batch 修过）。
-6. **中文 Jaccard**：2-gram 对「换说法的同主题」不敏感（实测 0.36），语义重复要靠 topic_cluster 配额兜底，别指望调阈值。
-7. **schema 加 required 字段会让旧 prompt 输出校验失败**：分类/价值分字段当时用「缺失回退 + warning」的软着陆，新字段照此办理。
-
-## 四、运行状态快照（交接时）
-
-- 文章 4 篇（2 篇 ready_for_review 但主评分 76 被终审守卫拦下、2 篇 needs_fact_sources）
-- 候选池：新关键词库生成的多分类候选 ~40 个（含价值分），23 个 Alexa 系 deferred 至 2026-06-20
-- 最近 audition：20 天模拟覆盖 8 分类、Alexa/Listing 14.3%、平均价值 86、判定「✅ 可以开始生成」
-- 未分类 source_items 约 970 条（分批回填中）
-- engine:daily 今日（06-06）未跑
-
-## 五、Backlog 与验证清单
-
-见 `AGENTS.md`（含优先级排序的 8 项 backlog 与回归命令）。任何 workflow 改动后的最小回归：
+## 最小回归
 
 ```bash
-for f in scripts/**/*.js; do node --check "$f"; done   # 语法
-npm run db:ping && npm run db:migrate                  # 数据层
-node scripts/engine_batch.js --limit 1 --dry-run       # 编排不破坏
-npm run jobs:create -- --limit 1 --dry-run             # 选题链路
-PORT=5178 node scripts/view_server.js &                # Viewer 能起、bootstrap 200
-curl -s localhost:5178/api/ui/bootstrap | head -c 50; kill %1
+cd workflow_py
+uv run pytest
+uv run contentflow engine batch --limit 1 --dry-run
+uv run contentflow sources check
+uv run contentflow keywords analyze
 ```
 
-## 六、Viewer 契约（Codex 改 workflow 时的边界）
+## 需要继续关注
 
-Claude 的 Viewer 依赖以下形状，**变更必须在交付说明中列出**：
+1. 每日目标是 `ready_for_review` 文章数，不是生成任务数。
+2. 质量不足进入 `needs_quality_revision`，不让 SEO/GEO 覆盖。
+3. 选题来源必须直接支撑主题事实；非亚马逊电商来源要压低或拒绝。
+4. `source_items.content_text` 已开始入库，topic prompt 优先使用正文片段。
+5. Viewer 读表契约不变，改数据形状要标注。
+6. 可观测性 review（见 `docs/18_observability_review.md`）中 workflow 侧基础修复已落地：生成 model_run 回填文章、run 异常收尾、长 AI 心跳、round 字段、`db list` 序列化、run-id 本地日期、中文业务节点展示。仍需单独设计的是：`needs_fact_sources` 后是否自动插入来源补全与修订，避免补位循环继续生成新文。
 
-- 表与字段：`articles`（含 article_quality_score / visual_plan_json / 分类三字段）、`topic_candidates`（selection_* / deferred_until / value 字段）、`topic_audition_runs/items`、`article_quality_scores`、`content_classifications`、`workflow_steps`（step_key 枚举）、`publish_packages`（metadata_json 键）
-- `engine_reports.report_json`：qualityOverview / portfolioHealth / taxonomySummary 结构
-- 状态枚举：articles.status（含 needs_quality_revision）、topic_candidates.status（含 deferred）、selection_status 集合
-- engine_runs.summary_json：targetReady / readyCount / attemptedJobs / qualityFailedCount / businessOutcome / retryReusableJobs
+## Viewer 契约
 
-反向同理：Claude 不改 `scripts/pipeline|tools|lib`（ui_api_lib 除外）、`prompts/`、`schemas/`、`config/`、migrations；Viewer 需要新数据时由 Claude 在 ui_api_lib 内用只读 SQL 实现，或向 Codex 提字段需求。
+- `engine_runs.summary_json`：`targetReady`、`readyCount`、`attemptedWritingTasks`、`qualityFailedCount`、`businessOutcome`
+- `engine_reports.report_json`：`qualityOverview`、`portfolioHealth`、`taxonomySummary`、`sourceObservationCoverage`、`sourceLanes`、`observability`
+- `workflow_steps.step_key`：保持下划线命名
+- `topic_candidates`：`selection_*`、`deferred_until`、`portfolio_debug_json`
+- `articles`：`article_quality_score`、`visual_plan_json`、分类三字段

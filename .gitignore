@@ -1,6 +1,16 @@
 .env
 node_modules/
+.venv/
+workflow_py/.venv/
+.pytest_cache/
+**/.pytest_cache/
+__pycache__/
+**/__pycache__/
+*.pyc
 *.log
 .DS_Store
 logs/
 .gstack/
+
+# LangGraph API
+.langgraph_api

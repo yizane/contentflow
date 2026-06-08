@@ -1,51 +1,54 @@
-# 06 — Operations（排查手册）
+# 06 — Operations
 
 ## 日常命令
 
 ```bash
-npm run engine:daily          # 每日 1 篇
-npm run sources:fix -- --limit 5
-npm run engine:report
-npm run viewer                # 本地只读 Trace Console（http://127.0.0.1:5177）
+cd workflow_py
+uv run contentflow engine daily                         # 默认日产目标 5 篇 ready_for_review
+uv run contentflow engine daily --mode retry
+uv run contentflow engine daily --mode rebuild
+uv run contentflow sources fix --limit 5
+uv run contentflow engine report
+uv run contentflow sources check
+uv run contentflow keywords analyze
 ```
 
-## 排查指南（数据都在 MySQL）
+## 排查指南
 
 | 症状 | 查什么 |
 |---|---|
-| 采集失败 | `source_collection_logs WHERE status='failed'`（看 http_status / error_message；403=反爬，timeout=网络/代理）；Viewer → Sources tab 筛 failed |
-| OpenClaw 失败 | `model_runs WHERE status='failed'`（error_message 含 `network connection error` = 代理/Provider 断；`无法解析 JSON` = 模型输出不合规，看 raw_response）；`workflow_events WHERE event_type='openclaw_call_failed'` |
-| source fix 未通过 | `fact_checks` 最新一条的 must_fix_json；`source_resolutions WHERE resolved_status='needs_manual_review'`（这些需要人工资料，如 Seller Central 登录态内容、Flyfus 内部佐证） |
-| needs_fact_sources 堆积 | `articles WHERE status='needs_fact_sources'` → 逐篇 `npm run sources:fix -- --article-id <id>`；连续 2 轮不收敛就看 mustFix 是否为人工项 |
-| channel 缺失 | Viewer → Article Detail 渠道区；`npm run channels:generate -- --status ready_for_review --missing-only` |
-| export package 不完整 | `publish_packages.metadata_json.channelStatus.missing`；`ready_for_publish_package=0` 的看 metadata 的 suggestedCommand |
-| trace 写入失败 | engine run `summary_json.traceFailures` > 0；engine_report nextActions 会提示 |
+| 采集失败 | `source_collection_logs WHERE status='failed'`；看 http_status、error_message、duration_ms |
+| 某天采集量异常 | `source_observations WHERE daily_key=?`；canonical 去重后不要只看 `source_items.created_at` |
+| OpenClaw 失败 | `model_runs WHERE status='failed'`；看 error_message 和 raw_response |
+| 主题太少 | `topic_signals`、`topic_dedupe_records`、`topic_candidates.selection_skip_reason` |
+| 高分题没被选 | `portfolio_debug_json`、`deferred_until`、`selection_status` |
+| 文章没进终审 | `article_quality_scores`、`articles.article_quality_score`、`fact_checks.publish_readiness` |
+| 待补来源堆积 | `articles.status='needs_fact_sources'`，逐篇跑 `uv run contentflow sources fix --article-id <id>` |
+| 渠道缺失 | `channel_outputs`，或跑 `uv run contentflow channels generate --status ready_for_review --missing-only` |
+| 发布包不完整 | `publish_packages.metadata_json` 中的 missing/suggestedCommand |
 
-## 已知环境问题
+## Run Control
 
-- 代理 Fake-IP（198.18.0.0/15）：OpenClaw web_fetch 需 `tools.web.fetch.ssrfPolicy.allowRfc2544BenchmarkRange=true`
-- SearXNG JSON API 需在其 settings.yml 开启 `search.formats: [html, json]`
-- 代理节点抖动会导致 `LLM request failed: network connection error` —— 换节点后重跑即可（trace 中有完整失败记录）
+- `start`：当天没有 active daily run 才允许。
+- `retry`：仅 failed/partial，跳过可复用产物。
+- `rebuild`：归档旧 run 后完整重跑，不物理删除。
+- `force`：创建额外 run，默认不抢 active。
 
-## Run Control 操作
+触发和拒绝原因写 `run_actions`。不要绕过 daily run control 直接伪造 daily 数据。
 
-```bash
-npm run engine:daily                       # start（今天已有 active run 会被拒绝）
-npm run engine:daily -- --mode retry       # 只在 failed/partial 时允许
-npm run engine:daily -- --mode rebuild     # 归档旧数据后重跑（需确认场景）
-npm run engine:daily -- --plan-only        # 只评估是否允许，不执行
-```
-
-排查：`run_actions` 表记录每次触发与拒绝原因；被拒绝时按 `availableActions` 提示选 retry/rebuild。**不要绕过控制直接反复跑 engine:batch --run-type daily。**
-
-## 选题质量验证（Phase 12D）
-
-不要等 7/14/30 天观察——用选题压力测试立即看未来会写什么：
+## 选题压力测试
 
 ```bash
-npm run topic:audition -- --rounds 10 --limit 3 --refresh-candidates   # 刷新候选池后模拟 10 轮
-npm run topic:audition -- --rounds 20 --limit 1                        # 模拟未来 20 天每天 1 篇
-npm run keywords:analyze                                               # 关键词库偏置体检
+cd workflow_py
+uv run contentflow topic audition --rounds 10 --limit 3 --refresh-candidates
+uv run contentflow topic audition --rounds 20 --limit 1
+uv run contentflow keywords analyze
 ```
 
-报告回答：未来选题日历 / 分类分布 / 价值分（痛点·可执行性）/ 重复风险 / 高分被延期原因 / 分类缺口归因（无候选=关键词或源不足；有候选低价值=质量不足；合格但竞争不过=调 bonus）/ 是否可以开始生成。
+重点看：未来选题日历、分类分布、平均价值分、重复风险、deferred 原因、source 支撑不足原因。
+
+## 环境问题
+
+- OpenClaw web_fetch 如需访问 198.18.0.0/15 Fake-IP，需允许 RFC2544 benchmark range。
+- SearXNG JSON API 需要开启 `search.formats: [html, json]`。
+- 代理节点抖动导致模型失败时，换节点后重跑；失败记录在 `model_runs` 和 `workflow_events`。

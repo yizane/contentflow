@@ -1,0 +1,42 @@
+[project]
+name = "contentflow-workflow-py"
+version = "0.1.0"
+description = "Python workflow engine for ContentFlow."
+requires-python = ">=3.12"
+dependencies = [
+  "beautifulsoup4>=4.14.3",
+  "courlan>=1.4.0",
+  "feedparser>=6.0.12",
+  "httpx>=0.28.1",
+  "jsonschema>=4.24.0",
+  "langgraph>=0.2.0",
+  "pydantic-settings>=2.14.1",
+  "pymysql>=1.1.1",
+  "python-dotenv>=1.2.2",
+  "pyyaml>=6.0.2",
+  "rapidfuzz>=3.14.5",
+  "regex>=2026.5.9",
+  "sqlparse>=0.5.5",
+  "tenacity>=9.1.4",
+  "trafilatura>=2.0.0",
+  "typer>=0.16.0",
+]
+
+[project.scripts]
+contentflow = "contentflow.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["contentflow"]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.4.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

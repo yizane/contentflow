@@ -1,107 +1,157 @@
 # 03 — Workflow
 
-## 主流程（engine:daily / engine:batch）
+## 主链路
 
+```text
+资料采集
+→ 候选主题生成
+→ 补位循环（选题入选与写作排队 → 文章初稿生成 → 事实核查与来源门禁）
+→ SEO/GEO 辅助评分
+→ 渠道改写
+→ 发布包 / 人工终审
+→ 运行报告
 ```
-collect_sources → topic_generation → create_article_jobs → article_generation
-→ fact_check → (source_fix 按需) → channel_repurpose → seo_geo_score
-→ export_package → engine_report
+
+`workflow_steps.step_key` 使用业务语义命名；底层写作任务表只是实现细节，不作为主链路节点。
+
+| 中文节点 | 内部 step_key | 做什么 |
+|---|---|---|
+| 资料采集 | `sources_collect` | 抓取每日数据源，抽取正文，写入 observation/canonical/source_items。 |
+| 候选主题生成 | `topics_generate` | 基于素材生成候选主题，做来源相关性、去重和主题信号记录。 |
+| 选题入选与写作排队 | `topics_select` | 组合选择器从候选主题中选出本轮要写的题目，创建写作任务。 |
+| 文章初稿生成 | `articles_generate` | 根据入选题目生成文章、版本、视觉规划和初始质量结果。 |
+| 事实核查与来源门禁 | `articles_factcheck` | 核查事实，决定能否进入终审，或是否需要补来源/修订。 |
+| 来源补全与修订 | `sources_fix` | 为 `needs_fact_sources` 文章补证据、修订正文并重新核查；daily 补位循环会在来源门禁后优先触发它。 |
+| 文章质量主评分 | `article_quality_score` | 用主评分判断文章是否达到质量门。 |
+| SEO/GEO 辅助评分 | `seo_geo_score` | 给出搜索和 AI 引用友好度建议，不覆盖质量门。 |
+| 渠道改写 | `channels_generate` | 为 ready 文章生成公众号、抖音、小红书等渠道稿。 |
+| 发布包生成 | `package_export` | 整理正文、渠道稿、元数据和检查结果。 |
+| 人工终审 | `review_mark` | 记录人工通过、退回、归档等动作。 |
+| 运行摘要 | `db_list` | 读取最新文章状态，作为本次运行收尾。 |
+
+生产入口：
+
+```bash
+cd workflow_py
+uv run contentflow engine daily
+uv run contentflow engine batch --limit 1 --target-ready 5
 ```
 
-## Workflow Trace（全部写 MySQL）
+## Python Runtime
 
-每次 engine run：
+`workflow_py/contentflow` 是唯一 workflow runtime。
 
-- `engine_runs` 一条主记录（总体统计在 summary_json）
-- 每个大步骤一条 `workflow_steps`（status: pending/running/success/warning/failed/skipped，duration_ms 自动计算）
-- 细粒度事件写 `workflow_events`（engine_started / step_started / step_completed / source_fetch_* / topic_candidate_* / article_job_created / openclaw_call_* / validation_failed / status_changed / package_created / engine_completed）
-- 每个采集源一条 `source_collection_logs`（含 http_status / items_found / items_inserted / duration_ms / sample_titles）
-- 所有状态变更写 `status_transitions`（article / article_version / article_job / topic_candidate / channel_output / publish_package）
+- `cli.py`：极薄入口，只启动 `commands.root.app`。
+- `commands/`：Typer CLI 命令分组，暴露 `contentflow <domain> <action>`。
+- `core/`：MySQL-only 连接、migration、配置读取、trace 审计。
+- `flow/`：batch/daily 编排、run control、runtime 参数、step registry、LangGraph 图。
+- `domains/sources/`：HTTP/RSS/page/AMZ123 采集、正文抽取、canonical ingest、source lanes。
+- `domains/topics/`：素材选择、topic generation、source relevance、dedupe、audition。
+- `domains/production/`：article_generation、factcheck、source resolution、quality、scoring、channels、package、review。
+- `domains/taxonomy/`：内容分类。
+- `llm/`：prompt 组装、模型调用审计、JSON/schema 校验、OpenClaw provider。
+- `ops/`：engine report、配置同步、来源检查、关键词分析、canonical 回填。
 
-子进程通过环境变量 `ENGINE_RUN_ID` / `WORKFLOW_STEP_ID` 关联到当前 run 与 step。
+## 开源库边界
 
-trace 写入失败不会中断主流程（计数 + console.warn），engine run summary_json 的 `traceFailures` 字段与 engine_report 会提示。
+基础能力优先用成熟库：
 
-## LangGraph 实验入口
+- CLI：Typer
+- 配置：Pydantic Settings、python-dotenv、PyYAML
+- MySQL：PyMySQL
+- HTTP/RSS/HTML：httpx、feedparser、BeautifulSoup、trafilatura
+- URL canonical：courlan
+- 近似重复：rapidfuzz
+- Schema 校验：jsonschema
+- migration 拆分：sqlparse
+- 重试：tenacity
+- 编排图：LangGraph Python
 
-`npm run engine:graph` 是与 `engine:batch` 并行的实验编排入口。
+项目内只保留业务规则：source lane、亚马逊电商来源守门、portfolio balancer、质量门禁、状态机、报告结构。
 
-- 它使用 LangGraph 表达节点和条件分支：采集 → 选题 → 补位循环 → 文章 → 事实核查 → 评分 → 渠道 → 快照。
-- 它继续写入现有 `engine_runs`、`workflow_steps`、`workflow_events`、`model_runs`，Viewer 契约不变。
-- OpenClaw 仍通过 `providers` 抽象调用，生产执行器仍是 `openclaw_cli`。
-- `run_mode` 仍表示 `start` / `retry` / `rebuild` / `force`；runner 标识写在 `engine_runs.summary_json.runner = "langgraph"`。
-- 当前生产入口仍是 `npm run engine:daily` / `npm run engine:batch`。只有在 graph runner 连续小流量验证通过后，才考虑用 `WORKFLOW_RUNNER=graph` 接入 daily。
+## Trace
 
-## Daily Run Control（Phase 11）
+每次 engine run 写：
 
-- 每天一个主键 `daily_key = YYYY-MM-DD`，**默认一天只有一个 active daily run**（应用层在 run_control_lib.canStartDaily 控制；未加 DB 唯一约束——is_active 为 TINYINT，唯一约束会阻止多条历史 inactive 记录）。
-- 模式：`start`（无 active run 才允许）/ `retry`（仅 failed/partial；复用当天未完成 job，跳过已成功数据）/ `rebuild`（归档旧 run 后完整重跑）/ `force`（高级：额外 run，默认 is_active=false，`--make-active` 才接管）。
-- rebuild **不物理删除**：旧 run → superseded；topic_candidates → archived；pending/failed job → cancelled；非 approved/published 文章及其版本/包/渠道 → archived/superseded；approved_for_publish/published **不自动归档**，输出 warning。全程写 status_transitions。
-- 所有触发（CLI/Viewer）写 `run_actions`（accepted/rejected/running/success/failed）。
-- engine:batch 不参与 daily 唯一性（run_scope=batch）。
+- `engine_runs`：总体状态、统计、`summary_json`
+- `workflow_steps`：步骤状态、耗时、输入/输出摘要
+- `workflow_events`：细粒度事件
+- `source_collection_logs`：每个采集源的采集结果
+- `status_transitions`：状态变更审计
+- `model_runs`：模型调用 prompt/raw_response/parsed/usage
 
-## 内容分类（Phase 12：Content Taxonomy & AI Classification）
+trace 写入失败不应中断主流程；Python runtime 会把失败计入 warning/summary。
 
-三层分类体系（定义在 `config/content_taxonomy.yaml`，经 `config:sync` 入库）：
+## Daily Run Control
 
-| 层 | 字段 | 含义 | 示例 |
-|---|---|---|---|
-| 来源分组 | `source_group` | 它从哪里来（**不是**内容分类） | official_amazon / chinese_crossborder_news |
-| 内容形态 | `content_type` | 它是什么内容 | operation_guide / policy_update / risk_warning |
-| 业务主题 | `business_category` | 它属于哪个运营板块 | listing_geo / ppc_acos / amazon_ai_shopping |
-| 主题簇 | `topic_cluster` | 它在什么内容专题里 | rufus_question_data / listing_semantic_structure |
+- `daily_key = YYYY-MM-DD`
+- 默认一天只有一个 active daily run。
+- `start`：当天无 active run 才允许。
+- `retry`：仅 failed/partial，可复用未完成写作任务。
+- `rebuild`：归档旧 run 后重跑，不物理删除。
+- `force`：创建额外 run，默认不抢 active。
 
-分类流程：
+Viewer / Web 触发时也应调用 Python `contentflow engine daily`，不要绕过 run control 直接写库。
 
-1. **规则分类**（`taxonomy_lib.classifyByRules`）：标题/摘要关键词 + source_group 先验；confidence ≥ 0.85 直接采用。
-2. **AI 分类**（OpenClaw `content_classifier`，批量）：规则低置信时兜底；中文源**不会**只因语言被归为 news_flash。
-3. 结果写入实体表字段（source_items / topic_candidates / article_jobs / articles / article_versions）+ `content_classifications` 审计表（含 confidence / reason / classifier_type / model_run_id）。
+## Source Lanes
 
-接入点：
+三条 lane 按消费方式区分：
 
-- `collect:sources` 采集后自动分类（AI 限额 3 批，剩余由 classify:content 回填）；
-- `run:topic-generation` 输出 contentType/businessCategory/topicCluster（继承或修正 source 分类），缺失回退规则；
-- `jobs:create-articles` → `article_jobs` 透传分类 → 文章/版本入库时落字段；
-- 修订版本沿版本链继承分类；
-- `export:package` 的 metadata_json 含 contentType/businessCategory/topicCluster；
-- `engine:report` 输出 contentTypeCounts / businessCategoryCounts / topicClusterCounts、source 多但文章少的类别、按业务分类的待补来源积压。
+| Lane | 窗口 | 消费方式 |
+|---|---|---|
+| news | first_seen 72h 内 | 只看新的快讯/新闻线索 |
+| policy | 7 天 | 官方/政策类，原地更新可 reactivated |
+| knowledge | 长期累积 | unused 轮转消费，成文后标 used |
 
-回填命令：`npm run content:classify -- --all --limit 500`（支持 `--entity`、`--force`、`--no-ai`、`--max-ai-calls`）。
+采集结果写 `source_observations`；canonical 素材写 `source_canonical_items` / `source_items`。同 URL 重复采集只增加 observation，不重复插 canonical source。
 
-## Topic Portfolio Balancer（Phase 12B）
+## Topic Generation
 
-选题逻辑从「谁分最高选谁」变为「**谁在当前内容组合里最值得选，选谁**」：
+选题输入优先使用 `source_items.content_text` 截断片段，其次用 summary。topic generator 必须输出：
 
-- `raw_score`：AI 对选题质量的评分（topic_score 产出，不考虑重复度）
-- `selection_score = raw_score − 饱和惩罚 + 组合奖励`（`config/content_portfolio.yaml`）
-  - 惩罚：主题簇/业务分类饱和、关键词 14 天内已用、标题/选题语义相似（中文 2-gram Jaccard 双通道）
-  - 奖励：欠代表业务分类、PPC/选品/意图词专项、首篇主题簇、P0 契合、时效型内容
-- **硬配额优先于 raw_score**：簇配额（默认 14 天 1 篇 / 30 天 2 篇）、分类配额（7d/14d 上限）触顶 → 候选 **deferred**（写 `deferred_until`，窗口期后自动回池），**不是 rejected**（rejected 仅用于低质/高风险/无业务价值）
-- 批内多样性：limit > 1 时同 topic_cluster 不重复
-- 每个决策（扣分/加分/跳过原因）写 `topic_candidates.portfolio_debug_json` + `workflow_events`（topic_candidate_selected / skipped_quota / skipped_duplicate），dry-run 可解释输出，监控台「组合决策」面板可见
-- 生成侧约束：topic_generator 要求每批候选覆盖 ≥4 个业务分类，AI Shopping + Listing GEO ≤ 40%
-- 关键词库体检：`npm run keywords:analyze`（占比/P0 分布/认知型词告警）
+- topic/title
+- primaryKeyword / secondaryKeywords
+- contentType / businessCategory / topicCluster
+- sourceUrls
+- raw score
+- content value score
 
-## 内容价值分与 Topic Audition（Phase 12D）
+来源守门要求候选来源必须直接支撑主题事实；非亚马逊电商来源会被压低或拒绝。
 
-**质量优先**：文章质量优先级高于 SEO/GEO。`content_value_score`（满分 100，SEO/GEO 不参与）判断「值不值得写」：
-sellerPainValue 20 / actionability 20 / informationGain 20 / businessFit 15 / nonRepetition 15 / sourceSupport 10。
+## Portfolio Balancer
 
-最终选择公式：`selection_score = content_value_score × 0.55 + raw_score × 0.25 + 组合奖励 − 饱和惩罚`。
-门槛：价值分 < 75 不选（skipped_low_value，留池）；痛点+可执行性 < 22 不选；来源支撑 < 4 defer。
-新生成候选由 topic_generator 直接输出价值分；存量候选由 `ensureValueScores` AI 批量补分（启发式兜底）。
+选题不是“最高分直接胜出”：
 
-**Topic Audition（选题压力测试）**：`npm run topic:audition -- --rounds 10 --limit 3 [--refresh-candidates] [--json]`
-模拟未来 N 轮选题（真实文章窗口滑动 + 模拟选中累积 + deferred 到期回池），不生成文章。
-回答：未来会写什么 / 分类是否均衡 / 有没有用 / 有没有重复 / 哪些缺口 / 能否开始生成。
-结果写 `topic_audition_runs` / `topic_audition_items`，Viewer 选题池页与 GET /api/topic-auditions 可见。
+```text
+selection_score = content_value_score * 0.55
+                + raw_score * 0.25
+                + 组合奖励
+                - 饱和/重复/来源弱惩罚
+```
 
-## 文章质量主评分 + 视觉规划（Phase 13）
+- 主题簇/业务分类硬配额优先。
+- 高分但近期饱和/重复 → `deferred`，带 `deferred_until`。
+- 低质/高风险/无业务价值 → `rejected`。
+- 批内同 `topic_cluster` 不重复。
+- 决策写 `portfolio_debug_json` 和 workflow events。
 
-**主从关系**：`article_quality_score`（主评分，7 维满分 100）>= 80 才能进 ready_for_review；SEO/GEO 降为建议线（< 70 给优化建议但不拦发布）；事实可靠性仍是底线。质量分不足时事实核查会把文章导向 `needs_quality_revision` 而非终审；review_mark / Viewer 终审同样有守卫。
+## 质量门
 
-评分维度：sellerPainFit 20 / actionability 20 / informationGain 20 / originality 10 / clarity 10 / evidenceUse 10 / businessUsefulness 10。类型特判：趋势类必须写卖家操作影响；干货类必须有步骤/清单；快讯必须有卖家影响+下一步。
+`article_quality_score >= 80` 是进入 `ready_for_review` 的主门禁。
 
-**视觉规划**：文章生成/修订必须输出 ≥2 个视觉规划，包含位置、类型、标题、用途、说明、图注、替代文本、生图提示和是否必需；正文插 `> [配图建议 visual_N：…]` 占位。系统只存规划不生成图片、不存二进制；操作指南配流程图或清单卡，趋势解读配对比图或关系图。Viewer 详情页「视觉规划」Tab 可逐条查看并复制生图提示。
+优先级：
 
-命令：`npm run score:article-quality -- --status ready_for_review | --article-id <id> [--force]`
+1. 事实可靠性
+2. 文章质量主评分
+3. SEO/GEO 辅助评分
+
+SEO/GEO 低分只能给优化建议，不能覆盖质量不足。
+
+## Topic Audition
+
+```bash
+cd workflow_py
+uv run contentflow topic audition --rounds 10 --limit 3
+```
+
+模拟未来 N 轮选题，不生成文章。结果写 `topic_audition_runs/items`，用于判断分类覆盖、重复风险、平均价值分和候选池健康度。

@@ -152,7 +152,7 @@ sources:
         requires_auth: false
         freshness: "breaking_news"
         feed_verified_at: "2026-06-04"
-        feed_discovered_by: "scripts/discover_feeds.js"
+        feed_discovered_by: "manual_feed_discovery"
         fallback_type: "fetch_page"
         use_case:
           - "Amazon marketplace trend"
@@ -214,7 +214,7 @@ sources:
         requires_auth: false
         freshness: "breaking_news"
         feed_verified_at: "2026-06-04"
-        feed_discovered_by: "scripts/discover_feeds.js"
+        feed_discovered_by: "manual_feed_discovery"
         fallback_type: "fetch_page"
         notes: "Feed was auto-discovered and verified locally; if feed fails, fallback to site_url fetch."
         use_case:
@@ -354,7 +354,7 @@ sources:
         requires_auth: false
         freshness: "evergreen_blog"
         feed_verified_at: "2026-06-04"
-        feed_discovered_by: "scripts/discover_feeds.js"
+        feed_discovered_by: "manual_feed_discovery"
         fallback_type: "fetch_page"
         notes: "Feed was auto-discovered and verified locally; if feed fails, fallback to site_url fetch."
         use_case:
@@ -372,7 +372,7 @@ sources:
         requires_auth: false
         freshness: "evergreen_blog"
         feed_verified_at: "2026-06-04"
-        feed_discovered_by: "scripts/discover_feeds.js"
+        feed_discovered_by: "manual_feed_discovery"
         fallback_type: "fetch_page"
         notes: "Feed was auto-discovered and verified locally; if feed fails, fallback to site_url fetch."
         use_case:
@@ -390,7 +390,7 @@ sources:
         requires_auth: false
         freshness: "evergreen_blog"
         feed_verified_at: "2026-06-04"
-        feed_discovered_by: "scripts/discover_feeds.js"
+        feed_discovered_by: "manual_feed_discovery"
         fallback_type: "fetch_page"
         notes: "Feed was auto-discovered and verified locally; if feed fails, fallback to site_url fetch."
         use_case:
@@ -408,7 +408,7 @@ sources:
         requires_auth: false
         freshness: "evergreen_blog"
         feed_verified_at: "2026-06-04"
-        feed_discovered_by: "scripts/discover_feeds.js"
+        feed_discovered_by: "manual_feed_discovery"
         fallback_type: "fetch_page"
         notes: "Feed was auto-discovered and verified locally; if feed fails, fallback to site_url fetch."
         use_case:
@@ -555,7 +555,7 @@ sources:
         use_case:
           - "RSS 探测"
           - "中文跨境资讯"
-        notes: "公开搜索结果显示存在 RSS 订阅页，但实际访问可能返回 405；必须由 discover_feeds.js 本地验证后再决定是否改为 rss。"
+        notes: "公开搜索结果显示存在 RSS 订阅页，但实际访问可能返回 405；必须用 Python 采集器或人工验证后再决定是否改为 rss。"
 
       - name: "亿恩网"
         type: "discover_feed_or_fetch"

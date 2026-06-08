@@ -1,6 +1,6 @@
 # 05 — Database Model（MySQL 唯一数据源）
 
-正式 schema：`db/mysql_schema.sql`（单文件，`npm run db:init` / `db:migrate` 幂等应用；未来需要增量演进时再建 `db/mysql_migrations/` 目录，runner 已支持）。
+正式 schema：`db/mysql_schema.sql` + `db/mysql_migrations/` 增量迁移。通过 `cd workflow_py && uv run contentflow db init/migrate` 幂等应用。
 
 ## 内容表
 
@@ -12,7 +12,7 @@
 | publish_packages | 发布包全量 | readme/article markdown + 全部 JSON + channels_json |
 | quality_reports / fact_checks / source_resolutions / seo_geo_scores | 评审记录 | raw_json |
 | model_runs | OpenClaw 调用 | **task_prompt / raw_response**（内部数据） + parsed_output_json |
-| topic_candidates / article_jobs / source_items | 选题与采集 | raw_json |
+| topic_candidates / article_writing_tasks / source_items | 选题与采集 | raw_json |
 | engine_runs / engine_reports / review_actions | 运行与审计 | report_markdown |
 
 ## Trace 表（migration 004）
@@ -36,13 +36,13 @@
 | config_sources | 采集源（结构化，每行一源） |
 | app_configs | 文档型配置：internal_claims/production_policy/models/sources_yaml/keywords_csv + 全部 prompts + 全部 schemas（version/sha/updated_by） |
 
-运行时一律读 DB（config_lib 进程级缓存）；仓库 config/、prompts/、schemas/ 文件为 seed，`npm run config:sync` 灌入 DB（updated_by != file-sync 的 Web 修改默认不覆盖，--force 才覆盖）。
+运行时由 Python `contentflow.config` 读取 DB；仓库 `config/`、`prompts/`、`schemas/` 文件为 seed，`cd workflow_py && uv run contentflow config sync` 灌入 DB（`updated_by != file-sync` 的 Web 修改默认不覆盖，`--force` 才覆盖）。
 
 ## 内容分类字段（migration 006）
 
 `source_items` / `topic_candidates` 增加：`content_type`、`business_category`、`topic_cluster`、`classification_confidence DECIMAL(5,4)`、`classification_reason TEXT`（均有索引）。
 
-`article_jobs` / `articles` / `article_versions` 增加：`content_type`、`business_category`、`topic_cluster`（均有索引；置信度与原因查 `content_classifications`）。
+`article_writing_tasks` / `articles` / `article_versions` 增加：`content_type`、`business_category`、`topic_cluster`（均有索引；置信度与原因查 `content_classifications`）。
 
 新增 `content_classifications` 表（分类过程审计）：
 

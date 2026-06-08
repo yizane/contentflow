@@ -24,12 +24,12 @@ CREATE INDEX idx_topic_candidates_content_type ON topic_candidates(content_type)
 CREATE INDEX idx_topic_candidates_business_category ON topic_candidates(business_category);
 CREATE INDEX idx_topic_candidates_topic_cluster ON topic_candidates(topic_cluster);
 
--- 3) article_jobs（任务透传分类，文章生成时落到 articles / article_versions）
-ALTER TABLE article_jobs ADD COLUMN content_type VARCHAR(64);
-ALTER TABLE article_jobs ADD COLUMN business_category VARCHAR(64);
-ALTER TABLE article_jobs ADD COLUMN topic_cluster VARCHAR(128);
+-- 3) article_writing_tasks（任务透传分类，文章生成时落到 articles / article_versions）
+ALTER TABLE article_writing_tasks ADD COLUMN content_type VARCHAR(64);
+ALTER TABLE article_writing_tasks ADD COLUMN business_category VARCHAR(64);
+ALTER TABLE article_writing_tasks ADD COLUMN topic_cluster VARCHAR(128);
 
-CREATE INDEX idx_article_jobs_business_category ON article_jobs(business_category);
+CREATE INDEX idx_article_writing_tasks_business_category ON article_writing_tasks(business_category);
 
 -- 4) articles
 ALTER TABLE articles ADD COLUMN content_type VARCHAR(64);

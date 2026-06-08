@@ -15,7 +15,8 @@ Workflow 侧可观测性：`source_observations`、`source_canonical_items`、`t
 - articles：title/slug/status/quality_score/seo_score/geo_score/fact_publish_readiness
 - article_versions：article_markdown（正文渲染）、version_label、strategy
 - publish_packages：metadata_json、readme_markdown、channels_json、ready_for_publish_package
-- workflow_steps：step_name/status/duration_ms/output_summary_json
+- workflow_steps：step_name/status/duration_ms/output_summary_json。`topics_select.output_summary_json` 的本轮写作任务数读 `writingTaskCount`；不要再读历史 `jobCount/jobsCount`。
+- engine_reports.report_json.observability.steps：displayName/purpose/durationMs/modelCalls/inputTokens/outputTokens/totalTokens/round。前端展示主标题优先用 `displayName`；当前主链路 stepKey 为 `sources_collect`、`topics_generate`、`topics_select`、`articles_generate`、`articles_factcheck`、`seo_geo_score`、`channels_generate`、`db_list`。
 - source_collection_logs：全字段（运维面板）
 - workflow_events：event_type/level/message/created_at
 - status_transitions：from/to/reason/actor/created_at
@@ -34,15 +35,17 @@ Workflow 侧可观测性：`source_observations`、`source_canonical_items`、`t
 
 ## Run Control（Web 复用）
 
-正式 Web 管理后台应复用：`engine_runs`（daily_key/run_scope/run_mode/is_active/superseded_by/triggered_by/trigger_source 字段）与 `run_actions` 表，以及"一天一个 active daily run"的判定逻辑（参照 scripts/run_control_lib.js：start 仅当无 active；retry 仅 failed/partial；rebuild 归档不删除；force 默认不抢 active）。触发前先查 active run，拒绝时记 run_actions(status=rejected)。
+正式 Web 管理后台应复用：`engine_runs`（daily_key/run_scope/run_mode/is_active/superseded_by/triggered_by/trigger_source 字段）与 `run_actions` 表，以及"一天一个 active daily run"的判定逻辑（以 `workflow_py/contentflow/flow/run_control.py` 为准：start 仅当无 active；retry 仅 failed/partial；rebuild 归档不删除；force 默认不抢 active）。触发前先查 active run，拒绝时记 run_actions(status=rejected)。
 
-Daily 成功口径读 `engine_runs.summary_json`：`targetReady`（默认 5）、`readyCount`、`attemptedJobs`、`qualityFailedCount`、`businessOutcome`。`businessOutcome=target_met` 才表示日产目标达成；`partial/no_ready_articles` 是业务产出不足，不等同于进程崩溃；`technical_failed` 才表示技术失败。
+Daily 成功口径读 `engine_runs.summary_json`：`targetReady`（默认 5）、`readyCount`、`attemptedWritingTasks`、`qualityFailedCount`、`businessOutcome`。`businessOutcome=target_met` 才表示日产目标达成；`partial/no_ready_articles` 是业务产出不足，不等同于进程崩溃；`technical_failed` 才表示技术失败。
 
 历史模拟或补数触发需传 `--as-of-date YYYY-MM-DD`。Web 展示时应按 `daily_key` 与 started/finished/created_at 的模拟日理解数据，不要按真实执行日归档。
 
+时间口径：所有 MySQL `DATETIME` 列按 UTC 存储；`engine_runs.daily_key` 是 Asia/Shanghai 的本地业务日。按日过滤时，Viewer 需把本地日边界换算成 UTC 区间。
+
 ## Config 管理（Web 可写）
 
-Web 管理页可直接编辑：`config_keywords`、`config_sources`（CRUD + enabled 开关）、`app_configs`（prompts/schemas/策略文档；更新时 version+1、content_sha256 重算、updated_by='web'）。引擎每个进程启动时加载一次配置（config_lib 缓存），Web 修改在下一次 engine run 生效。注意：`schema:*` 与 prompt 修改影响生成质量，建议 Web 端保留版本历史与回滚。
+Web 管理页可直接编辑：`config_keywords`、`config_sources`（CRUD + enabled 开关）、`app_configs`（prompts/schemas/策略文档；更新时 version+1、content_sha256 重算、updated_by='web'）。Python 引擎每个进程启动时加载一次配置，Web 修改在下一次 engine run 生效。注意：`schema:*` 与 prompt 修改影响生成质量，建议 Web 端保留版本历史与回滚。
 
 ## 内容分类字段（Phase 12）
 

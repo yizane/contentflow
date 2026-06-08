@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS topic_candidates (
   INDEX idx_topic_candidates_kw (primary_keyword)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS article_jobs (
+CREATE TABLE IF NOT EXISTS article_writing_tasks (
   id VARCHAR(64) PRIMARY KEY,
   engine_run_id VARCHAR(64),
   topic_candidate_id VARCHAR(64),
@@ -95,8 +95,8 @@ CREATE TABLE IF NOT EXISTS article_jobs (
   error_message TEXT,
   created_at DATETIME(3) NOT NULL,
   updated_at DATETIME(3) NOT NULL,
-  INDEX idx_article_jobs_status (status),
-  INDEX idx_article_jobs_run (engine_run_id)
+  INDEX idx_article_writing_tasks_status (status),
+  INDEX idx_article_writing_tasks_run (engine_run_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS articles (
@@ -127,7 +127,7 @@ CREATE TABLE IF NOT EXISTS article_versions (
   id VARCHAR(64) PRIMARY KEY,
   article_id VARCHAR(64) NOT NULL,
   engine_run_id VARCHAR(64),
-  article_job_id VARCHAR(64),
+  article_writing_task_id VARCHAR(64),
   topic_candidate_id VARCHAR(64),
   model_provider VARCHAR(64),
   model_name VARCHAR(128),
